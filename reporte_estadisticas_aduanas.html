@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Analítico de Comercio Exterior - Aduanas de Chile</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-body: #0b0f19;
+            --bg-card: #111827;
+            --bg-card-hover: #1f293d;
+            --border: #1e293b;
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.25);
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; }
+        body { background-color: var(--bg-body); color: var(--text-main); line-height: 1.5; padding: 24px; }
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid var(--border); border-radius: 16px; padding: 24px 32px;
+            margin-bottom: 28px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+        }
+        .header h1 { font-size: 26px; font-weight: 800; background: linear-gradient(90deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .header p { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+        .badge-live { background: rgba(16, 185, 129, 0.15); color: var(--success); border: 1px solid var(--success); padding: 6px 14px; border-radius: 9999px; font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; }
+        .badge-live::before { content: ''; width: 8px; height: 8px; background: var(--success); border-radius: 50%; box-shadow: 0 0 10px var(--success); }
+
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; margin-bottom: 28px; }
+        .kpi-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
+            transition: transform 0.2s, border-color 0.2s; position: relative; overflow: hidden;
+        }
+        .kpi-card:hover { transform: translateY(-3px); border-color: var(--primary); box-shadow: 0 8px 20px var(--primary-glow); }
+        .kpi-card .label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+        .kpi-card .value { font-size: 28px; font-weight: 800; margin: 8px 0; color: #ffffff; }
+        .kpi-card .subtext { font-size: 12px; color: var(--text-muted); }
+
+        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 24px; margin-bottom: 32px; }
+        .chart-box {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 24px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        .chart-box h3 { font-size: 17px; font-weight: 700; margin-bottom: 6px; color: #f1f5f9; }
+        .chart-box .desc { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+
+        .meta-tag-box {
+            background: rgba(30, 41, 59, 0.6); border-left: 4px solid var(--primary);
+            padding: 10px 14px; border-radius: 0 8px 8px 0; margin-bottom: 16px; font-size: 12px;
+        }
+        .meta-tag-box span { font-weight: 700; color: #cbd5e1; margin-right: 6px; }
+
+        .section-title { font-size: 20px; font-weight: 800; margin: 32px 0 16px; color: #ffffff; display: flex; align-items: center; gap: 10px; }
+        .section-title::before { content: ''; width: 4px; height: 22px; background: var(--primary); border-radius: 2px; }
+
+        .table-container {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); margin-bottom: 32px;
+        }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+        th { background: #1e293b; color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; padding: 14px 18px; }
+        td { padding: 14px 18px; border-bottom: 1px solid var(--border); color: #e2e8f0; }
+        tr:hover td { background: var(--bg-card-hover); }
+        .badge { padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 11px; text-transform: uppercase; }
+        .badge-success { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+        .badge-danger { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+        .badge-info { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div>
+            <h1>Dashboard Analítico de Comercio Exterior (Aduanas de Chile)</h1>
+            <p>INF-522 Gestión Informática II | PostgreSQL Data Mart (mart.*) | Ingesta 100% API datos.gob.cl</p>
+        </div>
+        <div>
+            <div class="badge-live">Base de Datos PostgreSQL Conectada</div>
+        </div>
+    </div>
+
+    <!-- TARJETAS DE RESUMEN GLOBAL -->
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="label">Operaciones en DW</div>
+            <div class="value">5,000</div>
+            <div class="subtext">2.500 Importaciones / 2.500 Exportaciones</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">Exportaciones FOB Total</div>
+            <div class="value">$676.04M USD</div>
+            <div class="subtext">Despachos valorizados en frontera</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">Importaciones CIF Total</div>
+            <div class="value">$811.76M USD</div>
+            <div class="subtext">Costo mercancía + flete + seguro</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">Carga Total Movilizada</div>
+            <div class="value">1,267,851 Ton</div>
+            <div class="subtext">Tráfico aduanero total nacional</div>
+        </div>
+    </div>
+
+    <!-- GRÁFICOS INTERACTIVOS -->
+    <div class="charts-grid">
+        <!-- Gráfico 1: Balanza Comercial -->
+        <div class="chart-box">
+            <h3>KPI 01: Balanza Comercial y Cobertura por Aduana (M USD)</h3>
+            <div class="desc">Comparación de Exportaciones FOB frente a Importaciones CIF por principales aduanas.</div>
+            <div class="meta-tag-box">
+                <span>Fuente:</span> API datos.gob.cl (Aduanas) | <span>Periodicidad:</span> Mensual | <span>Meta:</span> Cobertura &ge; 100%
+            </div>
+            <canvas id="chartBalanza" height="230"></canvas>
+        </div>
+
+        <!-- Gráfico 3: Concentración Carga -->
+        <div class="chart-box">
+            <h3>KPI 03: Distribución de Carga por Aduana (% Toneladas)</h3>
+            <div class="desc">Detección de concentración logística y riesgos de colapso portuario (&gt;40%).</div>
+            <div class="meta-tag-box">
+                <span>Fuente:</span> Capa DW (dw.fact_comercio_exterior) | <span>Periodicidad:</span> Mensual | <span>Umbral Alerta:</span> &gt; 40%
+            </div>
+            <canvas id="chartConcentracion" height="230"></canvas>
+        </div>
+
+        <!-- Gráfico 4: Densidad de Valor -->
+        <div class="chart-box">
+            <h3>KPI 04: Valor Agregado Exportado (USD por Tonelada)</h3>
+            <div class="desc">Densidad de valor económico hacia los principales destinos de exportación chilena.</div>
+            <div class="meta-tag-box">
+                <span>Fuente:</span> API datos.gob.cl | <span>Periodicidad:</span> Mensual | <span>Meta:</span> &ge; 1.200 USD/Ton
+            </div>
+            <canvas id="chartValorAgregado" height="230"></canvas>
+        </div>
+
+        <!-- Gráfico 5: Eficiencia y Retención ETL -->
+        <div class="chart-box">
+            <h3>KPI 05: Rendimiento y Calidad del Pipeline ETL</h3>
+            <div class="desc">Tasa de éxito de corridas y retención de registros de la ingesta automatizada.</div>
+            <div class="meta-tag-box">
+                <span>Fuente:</span> public.etl_audit | <span>Periodicidad:</span> Por Ejecución | <span>Meta:</span> &ge; 95% Éxito
+            </div>
+            <canvas id="chartCalidad" height="230"></canvas>
+        </div>
+    </div>
+
+    <!-- TABLAS DE DETALLE DE LOS 5 INDICADORES -->
+    <div class="section-title">Detalle de Indicadores de Gestión en Data Mart (PostgreSQL: esquema mart)</div>
+
+    <!-- TABLA KPI 1 -->
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Indicador</th>
+                    <th>Objetivo de Gestión</th>
+                    <th>Fuente</th>
+                    <th>Periodicidad</th>
+                    <th>Aduana</th>
+                    <th>Exportaciones FOB (USD)</th>
+                    <th>Importaciones CIF (USD)</th>
+                    <th>Saldo Comercial (USD)</th>
+                    <th>Tasa Cobertura</th>
+                    <th>Estado Meta</th>
+                </tr>
+            </thead>
+            <tbody>
+                
+                <tr>
+                    <td><strong>Balanza Comercial y Cobertura por Aduana</strong></td>
+                    <td style="max-width: 280px; font-size: 12px; color: #94a3b8;">Medir el superávit o déficit comercial (FOB - CIF) por aduana para priorizar inversiones en infraestructura.</td>
+                    <td><span class="badge badge-info">API datos.gob.cl - Aduanas (Importaciones y Exportaciones)</span></td>
+                    <td>MENSUAL</td>
+                    <td><strong>TALCAHUANO</strong></td>
+                    <td>$111,627,980.48</td>
+                    <td>$0.00</td>
+                    <td style="color: #34d399">$111,627,980.48</td>
+                    <td>100.0%</td>
+                    <td><span class="badge badge-success">CUMPLE</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Balanza Comercial y Cobertura por Aduana</strong></td>
+                    <td style="max-width: 280px; font-size: 12px; color: #94a3b8;">Medir el superávit o déficit comercial (FOB - CIF) por aduana para priorizar inversiones en infraestructura.</td>
+                    <td><span class="badge badge-info">API datos.gob.cl - Aduanas (Importaciones y Exportaciones)</span></td>
+                    <td>MENSUAL</td>
+                    <td><strong>SAN ANTONIO</strong></td>
+                    <td>$23,437,841.33</td>
+                    <td>$66,772,316.26</td>
+                    <td style="color: #f87171">$-43,334,474.93</td>
+                    <td>35.1%</td>
+                    <td><span class="badge badge-danger">DEFICITARIO</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Balanza Comercial y Cobertura por Aduana</strong></td>
+                    <td style="max-width: 280px; font-size: 12px; color: #94a3b8;">Medir el superávit o déficit comercial (FOB - CIF) por aduana para priorizar inversiones en infraestructura.</td>
+                    <td><span class="badge badge-info">API datos.gob.cl - Aduanas (Importaciones y Exportaciones)</span></td>
+                    <td>MENSUAL</td>
+                    <td><strong>METROPOLITANA</strong></td>
+                    <td>$25,756,411.72</td>
+                    <td>$59,078,370.62</td>
+                    <td style="color: #f87171">$-33,321,958.90</td>
+                    <td>43.6%</td>
+                    <td><span class="badge badge-danger">DEFICITARIO</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Balanza Comercial y Cobertura por Aduana</strong></td>
+                    <td style="max-width: 280px; font-size: 12px; color: #94a3b8;">Medir el superávit o déficit comercial (FOB - CIF) por aduana para priorizar inversiones en infraestructura.</td>
+                    <td><span class="badge badge-info">API datos.gob.cl - Aduanas (Importaciones y Exportaciones)</span></td>
+                    <td>MENSUAL</td>
+                    <td><strong>SAN ANTONIO</strong></td>
+                    <td>$13,075,847.58</td>
+                    <td>$54,930,660.73</td>
+                    <td style="color: #f87171">$-41,854,813.15</td>
+                    <td>23.8%</td>
+                    <td><span class="badge badge-danger">DEFICITARIO</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Balanza Comercial y Cobertura por Aduana</strong></td>
+                    <td style="max-width: 280px; font-size: 12px; color: #94a3b8;">Medir el superávit o déficit comercial (FOB - CIF) por aduana para priorizar inversiones en infraestructura.</td>
+                    <td><span class="badge badge-info">API datos.gob.cl - Aduanas (Importaciones y Exportaciones)</span></td>
+                    <td>MENSUAL</td>
+                    <td><strong>SAN ANTONIO</strong></td>
+                    <td>$3,638,251.49</td>
+                    <td>$62,131,792.96</td>
+                    <td style="color: #f87171">$-58,493,541.47</td>
+                    <td>5.9%</td>
+                    <td><span class="badge badge-danger">DEFICITARIO</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Balanza Comercial y Cobertura por Aduana</strong></td>
+                    <td style="max-width: 280px; font-size: 12px; color: #94a3b8;">Medir el superávit o déficit comercial (FOB - CIF) por aduana para priorizar inversiones en infraestructura.</td>
+                    <td><span class="badge badge-info">API datos.gob.cl - Aduanas (Importaciones y Exportaciones)</span></td>
+                    <td>MENSUAL</td>
+                    <td><strong>METROPOLITANA</strong></td>
+                    <td>$13,727,918.01</td>
+                    <td>$48,129,942.07</td>
+                    <td style="color: #f87171">$-34,402,024.06</td>
+                    <td>28.5%</td>
+                    <td><span class="badge badge-danger">DEFICITARIO</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Balanza Comercial y Cobertura por Aduana</strong></td>
+                    <td style="max-width: 280px; font-size: 12px; color: #94a3b8;">Medir el superávit o déficit comercial (FOB - CIF) por aduana para priorizar inversiones en infraestructura.</td>
+                    <td><span class="badge badge-info">API datos.gob.cl - Aduanas (Importaciones y Exportaciones)</span></td>
+                    <td>MENSUAL</td>
+                    <td><strong>SAN ANTONIO</strong></td>
+                    <td>$9,190,993.36</td>
+                    <td>$48,677,819.14</td>
+                    <td style="color: #f87171">$-39,486,825.78</td>
+                    <td>18.9%</td>
+                    <td><span class="badge badge-danger">DEFICITARIO</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Balanza Comercial y Cobertura por Aduana</strong></td>
+                    <td style="max-width: 280px; font-size: 12px; color: #94a3b8;">Medir el superávit o déficit comercial (FOB - CIF) por aduana para priorizar inversiones en infraestructura.</td>
+                    <td><span class="badge badge-info">API datos.gob.cl - Aduanas (Importaciones y Exportaciones)</span></td>
+                    <td>MENSUAL</td>
+                    <td><strong>METROPOLITANA</strong></td>
+                    <td>$14,137,013.13</td>
+                    <td>$43,009,454.43</td>
+                    <td style="color: #f87171">$-28,872,441.30</td>
+                    <td>32.9%</td>
+                    <td><span class="badge badge-danger">DEFICITARIO</span></td>
+                </tr>
+                
+            </tbody>
+        </table>
+    </div>
+
+    <!-- TABLA KPI 2 & 3 -->
+    <div class="section-title">KPI 02 (Incidencia Logística) & KPI 03 (Concentración de Carga)</div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Aduana</th>
+                    <th>Vía Transporte</th>
+                    <th>Costo Logístico (Flete+Seguro)</th>
+                    <th>Monto CIF (USD)</th>
+                    <th>Incidencia Logística (%)</th>
+                    <th>Meta / Umbral</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                
+                <tr>
+                    <td><strong>SAN ANTONIO</strong></td>
+                    <td>MARITIMA</td>
+                    <td>$29,492,870.59</td>
+                    <td>$327,698,561.98</td>
+                    <td><strong>9.00%</strong></td>
+                    <td>Marítima <= 10.0%, Aérea <= 18.0%, Otros <= 15.0%</td>
+                    <td><span class="badge badge-success">DENTRO DE META</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>METROPOLITANA</strong></td>
+                    <td>AEREA</td>
+                    <td>$19,688,649.60</td>
+                    <td>$218,762,772.98</td>
+                    <td><strong>9.00%</strong></td>
+                    <td>Marítima <= 10.0%, Aérea <= 18.0%, Otros <= 15.0%</td>
+                    <td><span class="badge badge-success">DENTRO DE META</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>VALPARAISO</strong></td>
+                    <td>MARITIMA</td>
+                    <td>$7,915,494.16</td>
+                    <td>$87,949,936.64</td>
+                    <td><strong>9.00%</strong></td>
+                    <td>Marítima <= 10.0%, Aérea <= 18.0%, Otros <= 15.0%</td>
+                    <td><span class="badge badge-success">DENTRO DE META</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>SAN ANTONIO</strong></td>
+                    <td>TERRESTRE</td>
+                    <td>$6,586,099.17</td>
+                    <td>$73,178,879.98</td>
+                    <td><strong>9.00%</strong></td>
+                    <td>Marítima <= 10.0%, Aérea <= 18.0%, Otros <= 15.0%</td>
+                    <td><span class="badge badge-success">DENTRO DE META</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>METROPOLITANA</strong></td>
+                    <td>TERRESTRE</td>
+                    <td>$4,751,128.76</td>
+                    <td>$52,790,319.63</td>
+                    <td><strong>9.00%</strong></td>
+                    <td>Marítima <= 10.0%, Aérea <= 18.0%, Otros <= 15.0%</td>
+                    <td><span class="badge badge-success">DENTRO DE META</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>VALPARAISO</strong></td>
+                    <td>TERRESTRE</td>
+                    <td>$4,624,285.57</td>
+                    <td>$51,380,950.79</td>
+                    <td><strong>9.00%</strong></td>
+                    <td>Marítima <= 10.0%, Aérea <= 18.0%, Otros <= 15.0%</td>
+                    <td><span class="badge badge-success">DENTRO DE META</span></td>
+                </tr>
+                
+            </tbody>
+        </table>
+    </div>
+
+    <!-- TABLA KPI 5 (AUDITORÍA Y GOBERNANZA) -->
+    <div class="section-title">KPI 05: Gobernanza y Estabilidad de los Procesos ETL</div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>DAG Airflow</th>
+                    <th>Fuente Auditada</th>
+                    <th>Periodicidad</th>
+                    <th>Ejecuciones (Total/OK)</th>
+                    <th>Tasa Éxito</th>
+                    <th>Filas Leídas / Cargadas</th>
+                    <th>Tasa Retención</th>
+                    <th>% Nulos Promedio</th>
+                    <th>Duración Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+                
+                <tr>
+                    <td><strong>dag_01_etl_importaciones</strong></td>
+                    <td>Metadatos de Auditoría (public.etl_audit)</td>
+                    <td>POR EJECUCIÓN (DIARIO)</td>
+                    <td>7 / 5</td>
+                    <td><strong>71.4%</strong></td>
+                    <td>12,500 / 12,500</td>
+                    <td><span class="badge badge-success">100.0%</span></td>
+                    <td>0.00%</td>
+                    <td>41.5 seg</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>dag_02_etl_exportaciones</strong></td>
+                    <td>Metadatos de Auditoría (public.etl_audit)</td>
+                    <td>POR EJECUCIÓN (DIARIO)</td>
+                    <td>5 / 4</td>
+                    <td><strong>80.0%</strong></td>
+                    <td>10,000 / 10,000</td>
+                    <td><span class="badge badge-success">100.0%</span></td>
+                    <td>0.00%</td>
+                    <td>37.1 seg</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>dag_03_indicadores_mart</strong></td>
+                    <td>Metadatos de Auditoría (public.etl_audit)</td>
+                    <td>POR EJECUCIÓN (DIARIO)</td>
+                    <td>9 / 9</td>
+                    <td><strong>100.0%</strong></td>
+                    <td>45 / 45</td>
+                    <td><span class="badge badge-success">100.0%</span></td>
+                    <td>0.00%</td>
+                    <td>3.1 seg</td>
+                </tr>
+                
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Gráfico 1: Balanza Comercial
+        new Chart(document.getElementById('chartBalanza'), {
+            type: 'bar',
+            data: {
+                labels: ["TALCAHUANO", "SAN ANTONIO", "METROPOLITANA", "VALPARAISO", "PUERTO MONTT", "ANTOFAGASTA", "COQUIMBO", "ARICA"],
+                datasets: [
+                    {
+                        label: 'Exportaciones FOB (M USD)',
+                        data: [341.13, 102.52, 142.19, 44.79, 27.72, 5.62, 7.43, 1.54],
+                        backgroundColor: '#10b981',
+                        borderRadius: 6
+                    },
+                    {
+                        label: 'Importaciones CIF (M USD)',
+                        data: [0.0, 400.88, 271.55, 139.33, 0.0, 0.0, 0.0, 0.0],
+                        backgroundColor: '#ef4444',
+                        borderRadius: 6
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#94a3b8' } },
+                    y: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } }
+                },
+                plugins: { legend: { labels: { color: '#e2e8f0' } } }
+            }
+        });
+
+        // Gráfico 3: Concentración Carga
+        new Chart(document.getElementById('chartConcentracion'), {
+            type: 'doughnut',
+            data: {
+                labels: ["SAN ANTONIO", "TALCAHUANO", "METROPOLITANA", "VALPARAISO", "PUERTO MONTT", "ANTOFAGASTA", "COQUIMBO", "ARICA", "IQUIQUE", "PUNTA ARENAS"],
+                datasets: [{
+                    data: [32.46, 25.41, 20.85, 14.5, 5.48, 0.77, 0.27, 0.14, 0.11, 0.02],
+                    backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b']
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'right', labels: { color: '#e2e8f0' } }
+                }
+            }
+        });
+
+        // Gráfico 4: Valor Agregado USD/Ton
+        new Chart(document.getElementById('chartValorAgregado'), {
+            type: 'bar',
+            data: {
+                labels: ["CHINA", "ESTADOS UNIDOS", "BRASIL", "ITALIA", "JAPON", "ESPA\u00d1A", "MEXICO", "ALEMANIA"],
+                datasets: [{
+                    label: 'USD por Tonelada',
+                    data: [804.33, 2236.48, 2281.78, 4836.1, 404.48, 1443.74, 1228.97, 4275.02],
+                    backgroundColor: '#8b5cf6',
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#94a3b8' } },
+                    y: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } }
+                },
+                plugins: { legend: { labels: { color: '#e2e8f0' } } }
+            }
+        });
+
+        // Gráfico 5: Retención y Éxito ETL
+        new Chart(document.getElementById('chartCalidad'), {
+            type: 'bar',
+            data: {
+                labels: ['dag_01_importaciones', 'dag_02_exportaciones', 'dag_03_indicadores'],
+                datasets: [{
+                    label: 'Tasa de Retención (%)',
+                    data: [100.0, 100.0, 100.0],
+                    backgroundColor: '#3b82f6',
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: { min: 0, max: 110, grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
+                    x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+                },
+                plugins: { legend: { labels: { color: '#e2e8f0' } } }
+            }
+        });
+    </script>
+</body>
+</html>

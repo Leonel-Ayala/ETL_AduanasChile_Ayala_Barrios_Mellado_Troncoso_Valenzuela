@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+logs/
+salida/
+*.csv
+*.xlsx
+*.parquet
+*.pkl
+.vscode/
+.idea/
