@@ -166,18 +166,21 @@ sequenceDiagram
 
 ### Paso a Paso para la Exposición en Vivo:
 
-#### Paso 1: Introducir la Falla en Airflow
+#### Paso 1: Introducir la Falla Aislada en Airflow
 En la interfaz de Airflow (`http://localhost:8080`), ve al menú superior: **Admin -> Variables**.
-Busca la variable: `aduanas_api_base_url`.
+Busca la variable específica de la fuente de importaciones: **`aduanas_api_url_importaciones`** (o `aduanas_resource_id_importaciones`).
 Haz clic en el lápiz (Edit) y cámbiala a:
 ```text
 https://datos.gob.cl/api/3/action/endpoint_falla_controlada
 ```
+*(O ponle a `aduanas_resource_id_importaciones` el valor `c2211d9e_falso`).*  
 Haz clic en **Save**.
+
+> **¿Por qué esta variable y no la general?:** Si modificas `aduanas_api_url_importaciones`, la falla queda estrictamente aislada a la fuente de Importaciones (`dag_01`). La fuente de Exportaciones (`dag_02`) conserva su propia variable `aduanas_api_url_exportaciones` intacta, demostrando fehacientemente a la comisión que la caída de un servicio externo no derriba al otro.
 
 *(Alternativa por consola si prefieren terminal):*
 ```powershell
-docker exec -it aduanas-airflow-webserver airflow variables set aduanas_api_base_url "https://datos.gob.cl/api/3/action/endpoint_falla_controlada"
+docker exec -it aduanas-airflow-webserver airflow variables set aduanas_api_url_importaciones "https://datos.gob.cl/api/3/action/endpoint_falla_controlada"
 ```
 
 #### Paso 2: Disparar `dag_01_etl_importaciones` y Mostrar Reintentos
@@ -205,7 +208,7 @@ LIMIT 1;
   > *"Esto demuestra el principio de Aislamiento de Fallas: la indisponibilidad de la fuente de importaciones no interrumpe el procesamiento de exportaciones ni el cálculo de indicadores globales."*
 
 #### Paso 5: Restaurar el Servicio
-- En Airflow Variables, restaura la URL legítima:
+- En Airflow Variables, restaura la URL legítima en `aduanas_api_url_importaciones` (o en `aduanas_api_base_url` si la habías modificado):
 ```text
 https://datos.gob.cl/api/3/action/datastore_search
 ```

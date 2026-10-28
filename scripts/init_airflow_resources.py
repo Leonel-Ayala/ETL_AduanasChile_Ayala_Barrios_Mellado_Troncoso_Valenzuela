@@ -39,6 +39,8 @@ def init_resources():
     # 2. Configurar Variables de Airflow
     variables = {
         "aduanas_api_base_url": "https://datos.gob.cl/api/3/action/datastore_search",
+        "aduanas_api_url_importaciones": "https://datos.gob.cl/api/3/action/datastore_search",
+        "aduanas_api_url_exportaciones": "https://datos.gob.cl/api/3/action/datastore_search",
         "aduanas_resource_id_importaciones": "c2211d9e-4c8e-4ef4-84d5-87039c515584",
         "aduanas_resource_id_exportaciones": "f6fe6014-e353-4bc6-bd5d-762511a4dd57",
         "aduanas_api_page_limit": "500",

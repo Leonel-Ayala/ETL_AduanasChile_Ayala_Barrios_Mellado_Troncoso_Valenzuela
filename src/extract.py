@@ -59,11 +59,13 @@ def validar_api_disponible(tipo_flujo):
     Si falla, lanza RuntimeError para activar los reintentos de Airflow y registrar la falla en etl_audit.
     """
     flujo = tipo_flujo.upper()
-    base_url = _obtener_variable("aduanas_api_base_url", "https://datos.gob.cl/api/3/action/datastore_search")
+    default_base = _obtener_variable("aduanas_api_base_url", "https://datos.gob.cl/api/3/action/datastore_search")
     
     if flujo == "IMPORTACION":
+        base_url = _obtener_variable("aduanas_api_url_importaciones", default_base)
         resource_id = _obtener_variable("aduanas_resource_id_importaciones", "c2211d9e-4c8e-4ef4-84d5-87039c515584")
     elif flujo == "EXPORTACION":
+        base_url = _obtener_variable("aduanas_api_url_exportaciones", default_base)
         resource_id = _obtener_variable("aduanas_resource_id_exportaciones", "f6fe6014-e353-4bc6-bd5d-762511a4dd57")
     else:
         raise ValueError(f"Tipo de flujo no válido: {tipo_flujo}")
@@ -106,12 +108,14 @@ def extraer_datos_api_a_raw(tipo_flujo, **context):
     else:
         logical_date_str = str(logical_date)[:10]
 
-    base_url = _obtener_variable("aduanas_api_base_url", "https://datos.gob.cl/api/3/action/datastore_search")
+    default_base = _obtener_variable("aduanas_api_base_url", "https://datos.gob.cl/api/3/action/datastore_search")
     
     if flujo == "IMPORTACION":
+        base_url = _obtener_variable("aduanas_api_url_importaciones", default_base)
         resource_id = _obtener_variable("aduanas_resource_id_importaciones", "c2211d9e-4c8e-4ef4-84d5-87039c515584")
         tabla_raw = "raw.importaciones_raw"
     elif flujo == "EXPORTACION":
+        base_url = _obtener_variable("aduanas_api_url_exportaciones", default_base)
         resource_id = _obtener_variable("aduanas_resource_id_exportaciones", "f6fe6014-e353-4bc6-bd5d-762511a4dd57")
         tabla_raw = "raw.exportaciones_raw"
     else:
