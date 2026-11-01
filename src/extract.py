@@ -132,6 +132,14 @@ def extraer_datos_api_a_raw(tipo_flujo, **context):
     conn = _obtener_conexion_postgres()
     cur = conn.cursor()
 
+    # Optimización según directriz de arquitectura:
+    # La capa raw es un área transitoria de aterrizaje para el lote actual.
+    # Se vacía la tabla correspondiente antes de la extracción para evitar basura histórica intermedia.
+    # El contraste con lo histórico se realiza exclusivamente en el Data Warehouse (dw).
+    logger.info(f"Limpiando tabla transitoria {tabla_raw} antes de la extracción...")
+    cur.execute(f"TRUNCATE TABLE {tabla_raw};")
+    conn.commit()
+
     total_filas_extraidas = 0
     pagina = 0
 

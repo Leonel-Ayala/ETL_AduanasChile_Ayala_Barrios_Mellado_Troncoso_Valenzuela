@@ -319,7 +319,14 @@ def transformar_datos_a_staging(tipo_flujo, **context):
     df_stg.drop_duplicates(subset=["codigo_operacion"], keep="last", inplace=True)
     logger.info(f"Deduplicación: {filas_antes_dedup} -> {len(df_stg)} registros únicos en staging.")
 
-    # 3. CARGA IDEMPOTENTE EN STAGING (ON CONFLICT DO UPDATE)
+    # 3. LIMPIEZA TRANSITORIA Y CARGA IDEMPOTENTE EN STAGING
+    # Según directriz de arquitectura, la capa staging es un área de preparación transitoria.
+    # Se vacían los datos previos del flujo antes de insertar el nuevo lote limpio.
+    # El Data Warehouse (dw) conserva el histórico consolidado donde se contrasta lo nuevo vs lo existente.
+    logger.info(f"Limpiando datos previos en staging.stg_operaciones_aduanas para flujo '{flujo}'...")
+    cur.execute("DELETE FROM staging.stg_operaciones_aduanas WHERE tipo_flujo = %s;", (flujo,))
+    conn.commit()
+
     insert_sql = """
         INSERT INTO staging.stg_operaciones_aduanas (
             codigo_operacion, tipo_flujo, fecha_operacion, anio, mes,
