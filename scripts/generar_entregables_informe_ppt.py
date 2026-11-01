@@ -549,13 +549,13 @@ def generar_informe_word(output_path):
          "Valor Tonelada USD = (Monto FOB USD / Peso Toneladas) por socio y flujo.",
          "Valor promedio exportado >= 1.200 USD / Tonelada métrica."),
          
-        ("KPI 5: Calidad de Datos y Rendimiento del Pipeline ETL",
-         "mart.kpi_05_calidad_y_eficiencia_etl",
-         "Monitorear la gobernanza de datos, porcentaje de nulos en origen y rendimiento operativo de las ejecuciones en Apache Airflow.",
-         "Metadatos de Auditoría (public.etl_audit)",
-         "POR EJECUCIÓN (DIARIO)",
-         "Tasa Retención % = (Filas Cargadas / Filas Leídas) * 100 | % Nulos Crudos.",
-         "Tasa de Éxito >= 95.0%, Porcentaje de Nulos Críticos < 5.0%.")
+        ("KPI 5: Participación y Dependencia por Socio Comercial",
+         "mart.kpi_05_participacion_socios_comerciales",
+         "Evaluar el grado de diversificación del comercio exterior chileno y alertar sobreexposición económica con socios específicos.",
+         "API datos.gob.cl - Aduanas (Importaciones y Exportaciones 2026)",
+         "MENSUAL",
+         "Participación % = ((FOB Export + CIF Import País) / Intercambio Total Nacional) * 100",
+         "Ningún socio comercial debe superar el 35.0% de participación nacional (Alerta de Sobreexposición).")
     ]
 
     for title_kpi, tabla_kpi, obj_kpi, fuente_kpi, per_kpi, form_kpi, meta_kpi in kpis_data:
@@ -1082,17 +1082,17 @@ def generar_presentacion_powerpoint(output_path):
              border_color=C_BLUE)
              
     add_card(s8, PptInches(6.8), PptInches(1.5), PptInches(5.6), PptInches(5.4),
-             "Indicadores Estratégicos y de Calidad",
+             "Indicadores Estratégicos y de Mercado",
              ["KPI 4 (Densidad de Valor USD/Ton): Valor FOB por tonelada exportada e importada por socio comercial. Exportaciones manufactureras superan 1.200 USD/Ton.",
-              "KPI 5 (Calidad ETL y Auditoría): Tasa de retención del 100% sobre registros válidos, porcentaje de nulos crudos controlado (2,4%) y tiempo de ejecución < 45 seg.",
-              "Visualización Complementaria: Dashboard HTML interactivo con gráficos dinámicos en Chart.js."],
+              "KPI 5 (Dependencia por Socio Comercial): Grado de concentración de mercado exterior (FOB + CIF). Monitorea el umbral de alerta del 35% para mitigar riesgos geopolíticos.",
+              "Enfoque 100% de Negocio: Todos los KPIs responden a decisiones aduaneras y logísticas reales; las métricas de pipeline residen en public.etl_audit."],
              border_color=C_GREEN)
 
     s8.notes_slide.notes_text_frame.text = (
         "[06:15 - 07:00] GUION EXPOSITOR 5 (INDICADORES DE GESTIÓN):\n"
-        "En el Data Mart calculamos los 5 indicadores en SQL. Los resultados muestran que San Antonio concentra casi el 36% "
-        "del tonelaje nacional, lo que enciende una alerta operativa ante marejadas o paros portuarios. Además, el costo logístico marítimo "
-        "promedia un saludable 6,8% sobre el valor CIF, cumpliendo con creces la meta del 10%."
+        "En el Data Mart calculamos 5 indicadores 100% orientados al negocio aduanero y logístico nacional. "
+        "Monitoreamos balanza comercial por puerto, costos logísticos, concentración portuaria en San Antonio, densidad de valor "
+        "económico por tonelada y el índice de dependencia por socio comercial para alertar sobreexposiciones económicas."
     )
 
     # --------------------------------------------------------------------------

@@ -176,36 +176,61 @@ JOIN dw.dim_pais p ON p.id_pais = f.id_pais
 GROUP BY f.tipo_flujo, p.codigo_pais, p.nombre_pais;
 
 -- ------------------------------------------------------------------------------
--- KPI 5: Calidad y Eficiencia ETL (Monitoreo de Auditoría)
+-- KPI 5: Participación y Dependencia por Socio Comercial
 -- ------------------------------------------------------------------------------
-TRUNCATE TABLE mart.kpi_05_calidad_y_eficiencia_etl;
+TRUNCATE TABLE mart.kpi_05_participacion_socios_comerciales;
 
-INSERT INTO mart.kpi_05_calidad_y_eficiencia_etl (
+WITH totales_pais AS (
+    SELECT
+        p.codigo_pais,
+        p.nombre_pais,
+        COALESCE(SUM(CASE WHEN f.tipo_flujo = 'EXPORTACION' THEN f.monto_fob_usd ELSE 0 END), 0) AS exportaciones_fob_usd,
+        COALESCE(SUM(CASE WHEN f.tipo_flujo = 'IMPORTACION' THEN f.monto_cif_usd ELSE 0 END), 0) AS importaciones_cif_usd,
+        COALESCE(SUM(CASE WHEN f.tipo_flujo = 'EXPORTACION' THEN f.monto_fob_usd ELSE f.monto_cif_usd END), 0) AS intercambio_total_usd
+    FROM dw.fact_comercio_exterior f
+    JOIN dw.dim_pais p ON p.id_pais = f.id_pais
+    GROUP BY p.codigo_pais, p.nombre_pais
+),
+total_nacional AS (
+    SELECT COALESCE(SUM(intercambio_total_usd), 0) AS intercambio_nacional_usd
+    FROM totales_pais
+)
+INSERT INTO mart.kpi_05_participacion_socios_comerciales (
     indicador, objetivo, fuente, periodicidad, formula, meta_umbral,
-    dag_id, total_ejecuciones, ejecuciones_exitosas,
-    tasa_exito_pct, filas_leidas_total, filas_cargadas_total,
-    tasa_retencion_pct, promedio_porcentaje_nulos, promedio_duracion_seg, fecha_calculo
+    codigo_pais, nombre_pais,
+    exportaciones_fob_usd, importaciones_cif_usd,
+    intercambio_total_usd, intercambio_nacional_usd,
+    pct_participacion, alerta_sobreexposicion, cumple_meta, fecha_calculo
 )
 SELECT
-    'Gobernanza, Calidad de Datos y Eficiencia ETL' AS indicador,
-    'Monitorear la calidad de los datos de origen, tasa de nulos y estabilidad del pipeline de ingesta en Airflow.' AS objetivo,
-    'Metadatos de Auditoría (public.etl_audit)' AS fuente,
-    'POR EJECUCIÓN (DIARIO)' AS periodicidad,
-    'Tasa Éxito = (Exitosas / Total) * 100 | Tasa Retención = (Cargadas / Leídas) * 100' AS formula,
-    'Tasa Éxito >= 95.0%, Nulos < 5.0%, Retención >= 95.0%' AS meta_umbral,
-    dag_id,
-    COUNT(*) AS total_ejecuciones,
-    SUM(CASE WHEN estado = 'SUCCESS' THEN 1 ELSE 0 END) AS ejecuciones_exitosas,
-    ROUND((SUM(CASE WHEN estado = 'SUCCESS' THEN 1 ELSE 0 END)::NUMERIC / COUNT(*)) * 100.0, 2) AS tasa_exito_pct,
-    COALESCE(SUM(filas_leidas), 0) AS filas_leidas_total,
-    COALESCE(SUM(filas_cargadas), 0) AS filas_cargadas_total,
+    'Participación y Dependencia por Socio Comercial' AS indicador,
+    'Evaluar el grado de diversificación del comercio exterior chileno y alertar sobreexposición económica con socios específicos.' AS objetivo,
+    'API datos.gob.cl - Aduanas (Importaciones y Exportaciones 2026)' AS fuente,
+    'MENSUAL' AS periodicidad,
+    'Participación % = ((FOB Export + CIF Import País) / Intercambio Total Nacional) * 100' AS formula,
+    'Ningún socio comercial debe superar el 35.0% de participación (Alerta de Sobreexposición)' AS meta_umbral,
+    tp.codigo_pais,
+    tp.nombre_pais,
+    tp.exportaciones_fob_usd,
+    tp.importaciones_cif_usd,
+    tp.intercambio_total_usd,
+    tn.intercambio_nacional_usd,
     CASE
-        WHEN COALESCE(SUM(filas_leidas), 0) > 0 THEN
-            ROUND((SUM(filas_cargadas)::NUMERIC / SUM(filas_leidas)) * 100.0, 2)
-        ELSE 100.00
-    END AS tasa_retencion_pct,
-    ROUND(COALESCE(AVG(porcentaje_nulos), 0), 2) AS promedio_porcentaje_nulos,
-    ROUND(COALESCE(AVG(duracion_seg), 0), 2) AS promedio_duracion_seg,
+        WHEN tn.intercambio_nacional_usd > 0 THEN
+            ROUND((tp.intercambio_total_usd / tn.intercambio_nacional_usd) * 100.0, 2)
+        ELSE 0.00
+    END AS pct_participacion,
+    CASE
+        WHEN tn.intercambio_nacional_usd > 0 AND
+             (tp.intercambio_total_usd / tn.intercambio_nacional_usd) * 100.0 > 35.0 THEN TRUE
+        ELSE FALSE
+    END AS alerta_sobreexposicion,
+    CASE
+        WHEN tn.intercambio_nacional_usd > 0 AND
+             (tp.intercambio_total_usd / tn.intercambio_nacional_usd) * 100.0 <= 35.0 THEN TRUE
+        ELSE FALSE
+    END AS cumple_meta,
     CURRENT_TIMESTAMP
-FROM public.etl_audit
-GROUP BY dag_id;
+FROM totales_pais tp
+CROSS JOIN total_nacional tn
+ORDER BY tp.intercambio_total_usd DESC;

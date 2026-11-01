@@ -345,10 +345,10 @@ El esquema `mart` debe calcular con SQL estos **5 indicadores de gestión** cruz
    - **Fórmula:** $\frac{\sum \text{monto\_fob\_usd}}{\sum \text{peso\_toneladas}}$ por `tipo_flujo` y `nombre_pais`[cite: 4].
    - **Meta:** Valor promedio de exportación $\ge 1.200 \text{ USD/Ton}$[cite: 4, 7].
 
-5. **`mart.kpi_05_calidad_y_eficiencia_etl` (Tasa de Depuración, % de Nulos y Rendimiento de Carga):**
-   - **Objetivo:** Monitorear la calidad de los datos gubernamentales de origen y la efectividad del pipeline ETL por fuente[cite: 4, 7].
-   - **Fórmula:** Consulta sobre `public.etl_audit` calculando $\text{Tasa de Retención (\%)} = (\frac{\sum \text{filas\_cargadas}}{\sum \text{filas\_leidas}}) \times 100$, promedio de `porcentaje_nulos` y `duracion_seg` promedio por DAG[cite: 3, 4].
-   - **Meta:** Porcentaje de nulos críticos $< 5\%$ y tasa de éxito de ejecución $\ge 95\%$[cite: 4, 7].
+5. **`mart.kpi_05_participacion_socios_comerciales` (Participación y Dependencia por Socio Comercial):**
+   - **Objetivo:** Evaluar el grado de diversificación del comercio exterior chileno y alertar sobreexposición económica con socios específicos[cite: 4, 7].
+   - **Fórmula:** $(\frac{\text{Intercambio Comercial País } i}{\text{Intercambio Comercial Nacional Total}}) \times 100$, donde $\text{Intercambio} = \text{FOB Export} + \text{CIF Import}$[cite: 4].
+   - **Meta / Umbral:** Ningún socio comercial individual debe concentrar más del $35.0\%$ del intercambio comercial nacional[cite: 4, 7].
 
 ---
 

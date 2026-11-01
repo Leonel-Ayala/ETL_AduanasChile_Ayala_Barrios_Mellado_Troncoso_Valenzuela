@@ -245,11 +245,11 @@ Explica las 5 tablas del esquema `mart.*` proyectando DBeaver o el dashboard HTM
    - **Fórmula:** $\frac{\sum \text{Monto FOB USD}}{\sum \text{Peso Toneladas}}$ por país y flujo.
    - **Meta:** Exportaciones $\ge 1.200 \text{ USD/Ton}$.
 
-5. **KPI 5: Calidad y Rendimiento del Pipeline ETL (`mart.kpi_05_calidad_y_eficiencia_etl`):**
-   - **Objetivo:** Gobernanza de datos; monitorear tasa de retención, porcentaje de nulos y tiempos de respuesta del pipeline.
-   - **Fórmula:** Tasa de retención $(\frac{\sum \text{Cargadas}}{\sum \text{Leídas}}) \times 100$, promedio de % nulos y duración por corrida.
-   - **Meta:** Retención $\ge 95\%$, nulos críticos $< 5\%$, tasa de éxito $\ge 95\%$.
-   - **Hallazgo:** 100% de retención sin pérdida de registros válidos y promedio de ejecución inferior a 45 segundos por corrida.
+5. **KPI 5: Participación y Dependencia por Socio Comercial (`mart.kpi_05_participacion_socios_comerciales`):**
+   - **Objetivo:** Evaluar el grado de diversificación del comercio exterior chileno y alertar sobreexposición económica con socios específicos (riesgo geopolítico de concentración).
+   - **Fórmula:** $\text{Participación (\%)} = (\frac{\text{FOB Export} + \text{CIF Import}_{\text{País}}}{\text{Intercambio Nacional Total}}) \times 100$.
+   - **Meta / Umbral:** Ningún socio comercial debe superar el $35.0\%$ del intercambio comercial total de Chile (Alerta de Sobreexposición).
+   - **Hallazgo:** Los socios principales (China y EE.UU.) se monitorean continuamente para evitar que la economía nacional dependa excesivamente de una sola potencia económica.
 
 ---
 
@@ -356,10 +356,10 @@ En la rúbrica, **el 40% de la nota final depende de cómo cada estudiante respo
 
 ### Pregunta 8: *"¿Cómo se relacionan los 5 indicadores de gestión con la toma de decisiones reales en Aduanas o Comercio Exterior?"*
 - **Respuesta Destacada:**
-  > *"Los 5 indicadores cubren las tres dimensiones clave de la gestión moderna:
-  > - **Estratégica (KPI 1 y KPI 4):** La Balanza Comercial y el Valor Promedio por Tonelada permiten al Ministerio de Hacienda monitorear la competitividad exportadora y el tipo de cambio real.
-  > - **Operacional y Logística (KPI 2 y KPI 3):** La Incidencia del Costo Logístico y la Concentración de Carga permiten detectar sobrecostos en fletes y evitar que un solo puerto (como San Antonio) genere un colapso en la cadena de suministro nacional ante contingencias.
-  > - **Gobernanza Tecnológica (KPI 5):** Permite al equipo de TI fiscalizar la confiabilidad de las APIs de origen y la estabilidad de los pipelines ETL."*
+  > *"Los 5 indicadores son 100% de negocio y cubren las tres dimensiones críticas del comercio exterior:
+  > - **Estratégica y Geopolítica (KPI 1 y KPI 5):** La Balanza Comercial por Aduana y la Participación por Socio Comercial permiten al Ministerio de Hacienda, Relaciones Exteriores y ProChile fiscalizar la entrada de divisas y evitar la sobreexposición económica con un solo país (meta < 35%).
+  > - **Operacional y Portuaria (KPI 2 y KPI 3):** La Incidencia del Costo Logístico sobre CIF y la Concentración de Carga permiten detectar sobrecostos abusivos en fletes internacionales y evitar que un solo puerto (como San Antonio, con 35,8%) paralice la cadena de suministro nacional ante contingencias.
+  > - **Competitividad y Valor Agregado (KPI 4):** La Densidad de Valor Económico (USD/Ton) permite monitorear si Chile avanza hacia exportaciones manufactureras y agroindustriales con valor agregado (meta > 1.200 USD/Ton) o si sigue estancado en materias primas puras."*
 
 ---
 

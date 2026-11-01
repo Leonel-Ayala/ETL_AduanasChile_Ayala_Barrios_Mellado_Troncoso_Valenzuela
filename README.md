@@ -177,13 +177,13 @@ Cada indicador en el esquema `mart.*` incluye explícitamente en cada registro s
    - **Fórmula:** $\frac{\sum \text{monto\_fob\_usd}}{\sum \text{peso\_toneladas}}$ por país y flujo.
    - **Meta / Umbral:** Exportaciones $\ge 1.200 \text{ USD/Ton}$.
 
-5. **`mart.kpi_05_calidad_y_eficiencia_etl` (Gobernanza y Rendimiento del Pipeline):**
-   - **Indicador:** Gobernanza, Calidad de Datos y Eficiencia ETL.
-   - **Objetivo / Decisión:** Monitorear la calidad de los datos gubernamentales de origen, el porcentaje de nulos y la estabilidad operativa de las ejecuciones en Airflow.
-   - **Fuente:** Metadatos de Auditoría (`public.etl_audit`).
-   - **Periodicidad:** POR EJECUCIÓN (DIARIO).
-   - **Fórmula:** Tasa de retención $(\frac{\sum \text{filas\_cargadas}}{\sum \text{filas\_leidas}}) \times 100$, promedio de % nulos y tasa de éxito de los DAGs.
-   - **Meta / Umbral:** Tasa de éxito $\ge 95.0\%$, nulos críticos $< 5.0\%$, retención $\ge 95.0\%$.
+5. **`mart.kpi_05_participacion_socios_comerciales` (Participación y Dependencia por Socio Comercial):**
+   - **Indicador:** Participación y Dependencia por Socio Comercial.
+   - **Objetivo / Decisión:** Evaluar el grado de diversificación del comercio exterior chileno y alertar sobreexposición económica con socios comerciales específicos para orientar acuerdos arancelarios y tratados comerciales.
+   - **Fuente:** API `datos.gob.cl` - Aduanas (Importaciones y Exportaciones 2026).
+   - **Periodicidad:** MENSUAL.
+   - **Fórmula:** $\text{Participación (\%)} = (\frac{\text{Intercambio Comercial País } i}{\text{Intercambio Total Nacional}}) \times 100$, donde $\text{Intercambio} = \text{FOB Export} + \text{CIF Import}$.
+   - **Meta / Umbral:** Ningún socio comercial debe superar el $35.0\%$ del intercambio comercial total (Alerta si $> 35.0\%$).
 
 ---
 

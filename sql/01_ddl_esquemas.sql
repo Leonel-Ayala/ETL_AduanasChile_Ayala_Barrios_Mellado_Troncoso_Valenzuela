@@ -208,23 +208,23 @@ CREATE TABLE IF NOT EXISTS mart.kpi_04_valor_agregado_tonelada (
     CONSTRAINT uq_kpi_04 UNIQUE (tipo_flujo, codigo_pais)
 );
 
-CREATE TABLE IF NOT EXISTS mart.kpi_05_calidad_y_eficiencia_etl (
+CREATE TABLE IF NOT EXISTS mart.kpi_05_participacion_socios_comerciales (
     id SERIAL PRIMARY KEY,
-    indicador VARCHAR(100) NOT NULL DEFAULT 'Gobernanza, Calidad de Datos y Eficiencia ETL',
-    objetivo TEXT NOT NULL DEFAULT 'Monitorear la calidad de los datos de origen, tasa de nulos y estabilidad del pipeline de ingesta en Airflow.',
-    fuente VARCHAR(150) NOT NULL DEFAULT 'Metadatos de Auditoría (public.etl_audit)',
-    periodicidad VARCHAR(50) NOT NULL DEFAULT 'POR EJECUCIÓN (DIARIO)',
-    formula TEXT NOT NULL DEFAULT 'Tasa Éxito = (Exitosas / Total) * 100 | Tasa Retención = (Cargadas / Leídas) * 100',
-    meta_umbral TEXT NOT NULL DEFAULT 'Tasa Éxito >= 95.0%, Nulos < 5.0%, Retención >= 95.0%',
-    dag_id VARCHAR(100) NOT NULL,
-    total_ejecuciones INT DEFAULT 0,
-    ejecuciones_exitosas INT DEFAULT 0,
-    tasa_exito_pct NUMERIC(8,2) DEFAULT 0,
-    filas_leidas_total BIGINT DEFAULT 0,
-    filas_cargadas_total BIGINT DEFAULT 0,
-    tasa_retencion_pct NUMERIC(8,2) DEFAULT 0,
-    promedio_porcentaje_nulos NUMERIC(6,2) DEFAULT 0,
-    promedio_duracion_seg NUMERIC(10,2) DEFAULT 0,
+    indicador VARCHAR(100) NOT NULL DEFAULT 'Participación y Dependencia por Socio Comercial',
+    objetivo TEXT NOT NULL DEFAULT 'Evaluar el grado de diversificación del comercio exterior chileno y alertar sobreexposición económica con socios específicos.',
+    fuente VARCHAR(150) NOT NULL DEFAULT 'API datos.gob.cl - Aduanas (Importaciones y Exportaciones 2026)',
+    periodicidad VARCHAR(50) NOT NULL DEFAULT 'MENSUAL',
+    formula TEXT NOT NULL DEFAULT 'Participación % = ((FOB Export + CIF Import País) / Intercambio Total Nacional) * 100',
+    meta_umbral TEXT NOT NULL DEFAULT 'Ningún socio comercial debe superar el 35.0% de participación (Alerta de Sobreexposición)',
+    codigo_pais INT NOT NULL,
+    nombre_pais VARCHAR(120) NOT NULL,
+    exportaciones_fob_usd NUMERIC(18,2) DEFAULT 0,
+    importaciones_cif_usd NUMERIC(18,2) DEFAULT 0,
+    intercambio_total_usd NUMERIC(18,2) DEFAULT 0,
+    intercambio_nacional_usd NUMERIC(18,2) DEFAULT 0,
+    pct_participacion NUMERIC(8,2) DEFAULT 0,
+    alerta_sobreexposicion BOOLEAN DEFAULT FALSE,
+    cumple_meta BOOLEAN DEFAULT TRUE,
     fecha_calculo TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_kpi_05 UNIQUE (dag_id)
+    CONSTRAINT uq_kpi_05 UNIQUE (codigo_pais)
 );

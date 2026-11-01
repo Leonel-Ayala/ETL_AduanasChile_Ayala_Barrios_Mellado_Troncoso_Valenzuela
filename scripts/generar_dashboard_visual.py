@@ -73,12 +73,13 @@ def generar_dashboard():
     """)
     kpi_04 = cur.fetchall()
 
-    # 6. KPI 05: Calidad y Eficiencia ETL
+    # 6. KPI 05: Participación y Dependencia por Socio Comercial
     cur.execute("""
-        SELECT indicador, objetivo, dag_id, total_ejecuciones, ejecuciones_exitosas, tasa_exito_pct,
-               filas_leidas_total, filas_cargadas_total, tasa_retencion_pct,
-               promedio_porcentaje_nulos, promedio_duracion_seg, fuente, periodicidad, formula, meta_umbral
-        FROM mart.kpi_05_calidad_y_eficiencia_etl;
+        SELECT indicador, objetivo, codigo_pais, nombre_pais, exportaciones_fob_usd,
+               importaciones_cif_usd, intercambio_total_usd, intercambio_nacional_usd,
+               pct_participacion, alerta_sobreexposicion, cumple_meta, fuente, periodicidad, formula, meta_umbral
+        FROM mart.kpi_05_participacion_socios_comerciales
+        ORDER BY intercambio_total_usd DESC;
     """)
     kpi_05 = cur.fetchall()
 
@@ -105,6 +106,9 @@ def generar_dashboard():
     paises_export = [r for r in kpi_04 if r["tipo_flujo"] == "EXPORTACION"][:8]
     chart4_labels = [r["nombre_pais"] for r in paises_export]
     chart4_usd_ton = [float(r["valor_usd_por_tonelada"]) for r in paises_export]
+
+    chart5_labels = [r["nombre_pais"] for r in kpi_05[:8]]
+    chart5_pct = [float(r["pct_participacion"]) for r in kpi_05[:8]]
 
     html_content = f"""<!DOCTYPE html>
 <html lang="es">
@@ -331,35 +335,33 @@ def generar_dashboard():
         </table>
     </div>
 
-    <!-- TABLA KPI 5 (AUDITORÍA Y GOBERNANZA) -->
-    <div class="section-title">KPI 05: Gobernanza y Estabilidad de los Procesos ETL</div>
+    <!-- TABLA KPI 5 (PARTICIPACIÓN Y DEPENDENCIA POR SOCIO COMERCIAL) -->
+    <div class="section-title">KPI 05: Participación y Dependencia por Socio Comercial</div>
     <div class="table-container">
         <table>
             <thead>
                 <tr>
-                    <th>DAG Airflow</th>
-                    <th>Fuente Auditada</th>
-                    <th>Periodicidad</th>
-                    <th>Ejecuciones (Total/OK)</th>
-                    <th>Tasa Éxito</th>
-                    <th>Filas Leídas / Cargadas</th>
-                    <th>Tasa Retención</th>
-                    <th>% Nulos Promedio</th>
-                    <th>Duración Promedio</th>
+                    <th>País Socio Comercial</th>
+                    <th>Exportaciones FOB (USD)</th>
+                    <th>Importaciones CIF (USD)</th>
+                    <th>Intercambio Total (USD)</th>
+                    <th>% Participación Nacional</th>
+                    <th>Umbral de Alerta</th>
+                    <th>Estado de Exposición</th>
                 </tr>
             </thead>
             <tbody>
                 {''.join([f'''
                 <tr>
-                    <td><strong>{r['dag_id']}</strong></td>
-                    <td>{r['fuente']}</td>
-                    <td>{r['periodicidad']}</td>
-                    <td>{r['total_ejecuciones']} / {r['ejecuciones_exitosas']}</td>
-                    <td><strong>{float(r['tasa_exito_pct']):.1f}%</strong></td>
-                    <td>{r['filas_leidas_total']:,} / {r['filas_cargadas_total']:,}</td>
-                    <td><span class="badge badge-success">{float(r['tasa_retencion_pct']):.1f}%</span></td>
-                    <td>{float(r['promedio_porcentaje_nulos']):.2f}%</td>
-                    <td>{float(r['promedio_duracion_seg']):.1f} seg</td>
+                    <td><strong>{r['nombre_pais']}</strong></td>
+                    <td>${float(r['exportaciones_fob_usd']):,.2f}</td>
+                    <td>${float(r['importaciones_cif_usd']):,.2f}</td>
+                    <td>${float(r['intercambio_total_usd']):,.2f}</td>
+                    <td><strong>{float(r['pct_participacion']):.2f}%</strong></td>
+                    <td>{r['meta_umbral']}</td>
+                    <td>
+                        {f'<span class="badge badge-warning">ALERTA &gt; 35%</span>' if r['alerta_sobreexposicion'] else '<span class="badge badge-success">DIVERSIFICADO</span>'}
+                    </td>
                 </tr>
                 ''' for r in kpi_05])}
             </tbody>
@@ -437,22 +439,22 @@ def generar_dashboard():
             }}
         }});
 
-        // Gráfico 5: Retención y Éxito ETL
+        // Gráfico 5: Participación por Socio Comercial
         new Chart(document.getElementById('chartCalidad'), {{
             type: 'bar',
             data: {{
-                labels: ['dag_01_importaciones', 'dag_02_exportaciones', 'dag_03_indicadores'],
+                labels: {json.dumps(chart5_labels)},
                 datasets: [{{
-                    label: 'Tasa de Retención (%)',
-                    data: [100.0, 100.0, 100.0],
-                    backgroundColor: '#3b82f6',
+                    label: 'Participación en Comercio Exterior (%)',
+                    data: {json.dumps(chart5_pct)},
+                    backgroundColor: '#0ea5e9',
                     borderRadius: 6
                 }}]
             }},
             options: {{
                 responsive: true,
                 scales: {{
-                    y: {{ min: 0, max: 110, grid: {{ color: '#1e293b' }}, ticks: {{ color: '#94a3b8' }} }},
+                    y: {{ min: 0, max: 50, grid: {{ color: '#1e293b' }}, ticks: {{ color: '#94a3b8' }} }},
                     x: {{ grid: {{ display: false }}, ticks: {{ color: '#94a3b8' }} }}
                 }},
                 plugins: {{ legend: {{ labels: {{ color: '#e2e8f0' }} }} }}
