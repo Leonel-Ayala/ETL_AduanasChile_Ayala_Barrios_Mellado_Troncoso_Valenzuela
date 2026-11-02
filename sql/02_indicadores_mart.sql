@@ -178,6 +178,9 @@ GROUP BY f.tipo_flujo, p.codigo_pais, p.nombre_pais;
 -- ------------------------------------------------------------------------------
 -- KPI 5: Participación y Dependencia por Socio Comercial
 -- ------------------------------------------------------------------------------
+DROP TABLE IF EXISTS mart.kpi_05_calidad_y_eficiencia_etl CASCADE;
+DROP INDEX IF EXISTS mart.uq_kpi_05 CASCADE;
+
 CREATE TABLE IF NOT EXISTS mart.kpi_05_participacion_socios_comerciales (
     id SERIAL PRIMARY KEY,
     indicador VARCHAR(100) NOT NULL DEFAULT 'Participación y Dependencia por Socio Comercial',
@@ -196,7 +199,7 @@ CREATE TABLE IF NOT EXISTS mart.kpi_05_participacion_socios_comerciales (
     alerta_sobreexposicion BOOLEAN DEFAULT FALSE,
     cumple_meta BOOLEAN DEFAULT TRUE,
     fecha_calculo TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_kpi_05 UNIQUE (codigo_pais)
+    CONSTRAINT uq_kpi_05_socio UNIQUE (codigo_pais)
 );
 
 TRUNCATE TABLE mart.kpi_05_participacion_socios_comerciales;

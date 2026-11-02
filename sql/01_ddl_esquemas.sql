@@ -226,5 +226,5 @@ CREATE TABLE IF NOT EXISTS mart.kpi_05_participacion_socios_comerciales (
     alerta_sobreexposicion BOOLEAN DEFAULT FALSE,
     cumple_meta BOOLEAN DEFAULT TRUE,
     fecha_calculo TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_kpi_05 UNIQUE (codigo_pais)
+    CONSTRAINT uq_kpi_05_socio UNIQUE (codigo_pais)
 );
