@@ -178,6 +178,27 @@ GROUP BY f.tipo_flujo, p.codigo_pais, p.nombre_pais;
 -- ------------------------------------------------------------------------------
 -- KPI 5: Participación y Dependencia por Socio Comercial
 -- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS mart.kpi_05_participacion_socios_comerciales (
+    id SERIAL PRIMARY KEY,
+    indicador VARCHAR(100) NOT NULL DEFAULT 'Participación y Dependencia por Socio Comercial',
+    objetivo TEXT NOT NULL DEFAULT 'Evaluar el grado de diversificación del comercio exterior chileno y alertar sobreexposición económica con socios específicos.',
+    fuente VARCHAR(150) NOT NULL DEFAULT 'API datos.gob.cl - Aduanas (Importaciones y Exportaciones 2026)',
+    periodicidad VARCHAR(50) NOT NULL DEFAULT 'MENSUAL',
+    formula TEXT NOT NULL DEFAULT 'Participación % = ((FOB Export + CIF Import País) / Intercambio Total Nacional) * 100',
+    meta_umbral TEXT NOT NULL DEFAULT 'Ningún socio comercial debe superar el 35.0% de participación (Alerta de Sobreexposición)',
+    codigo_pais INT NOT NULL,
+    nombre_pais VARCHAR(120) NOT NULL,
+    exportaciones_fob_usd NUMERIC(18,2) DEFAULT 0,
+    importaciones_cif_usd NUMERIC(18,2) DEFAULT 0,
+    intercambio_total_usd NUMERIC(18,2) DEFAULT 0,
+    intercambio_nacional_usd NUMERIC(18,2) DEFAULT 0,
+    pct_participacion NUMERIC(8,2) DEFAULT 0,
+    alerta_sobreexposicion BOOLEAN DEFAULT FALSE,
+    cumple_meta BOOLEAN DEFAULT TRUE,
+    fecha_calculo TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_kpi_05 UNIQUE (codigo_pais)
+);
+
 TRUNCATE TABLE mart.kpi_05_participacion_socios_comerciales;
 
 WITH totales_pais AS (
