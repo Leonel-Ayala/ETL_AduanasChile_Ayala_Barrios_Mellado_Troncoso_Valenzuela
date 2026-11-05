@@ -28,7 +28,7 @@ def init_resources():
         conn_type="postgres",
         host=os.getenv("POSTGRES_HOST", "postgres"),
         login=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "aduanas_dw_secure_pass"),
+        password=os.environ["POSTGRES_PASSWORD"],
         schema=os.getenv("POSTGRES_DB", "aduanas_dw"),
         port=5432,
     )
@@ -45,7 +45,8 @@ def init_resources():
         "aduanas_resource_id_exportaciones": "f6fe6014-e353-4bc6-bd5d-762511a4dd57",
         "aduanas_api_page_limit": "500",
         "aduanas_api_max_pages": "5",
-        "aduanas_api_token": ""
+        "aduanas_api_token": "",
+        "aduanas_max_pct_nulos_permitido": "25.0"
     }
 
     for key, value in variables.items():

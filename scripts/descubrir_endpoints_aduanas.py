@@ -8,7 +8,7 @@ import urllib.parse
 import sys
 
 BASE_URL = "https://datos.gob.cl/api/3/action"
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AntigravityETL/1.0"}
+HEADERS = {"User-Agent": "ETL-Aduanas-UCM-INF522/1.0"}
 
 # Recursos verificados y activos con decenas de miles de registros en datos.gob.cl
 RECURSOS_CONOCIDOS = {

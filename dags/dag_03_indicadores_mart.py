@@ -46,18 +46,8 @@ def ejecutar_indicadores_sql(**context):
     with open(sql_path, "r", encoding="utf-8") as f:
         sql_content = f.read()
 
-    if PostgresHook:
-        hook = PostgresHook(postgres_conn_id="postgres_dw")
-        conn = hook.get_conn()
-    else:
-        import psycopg2
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "aduanas_dw_secure_pass"),
-            dbname=os.getenv("POSTGRES_DB", "aduanas_dw")
-        )
+    from src.db import obtener_conexion
+    conn = obtener_conexion()
 
     cur = conn.cursor()
     try:
@@ -95,4 +85,17 @@ with DAG(
         op_kwargs={"fuente": "MART_INDICADORES_SQL"},
     )
 
-    tarea_recalcular_kpis >> tarea_auditar_kpis
+    def tarea_actualizar_dashboard_html(**context):
+        """Genera el reporte HTML dinámicamente con los datos recién calculados en PostgreSQL."""
+        try:
+            from scripts.generar_dashboard_html import generar_reporte_desde_airflow
+            generar_reporte_desde_airflow(**context)
+        except Exception as e:
+            print(f"Advertencia al generar dashboard HTML: {e}")
+
+    tarea_generar_dashboard = PythonOperator(
+        task_id="generar_dashboard_html_en_vivo",
+        python_callable=tarea_actualizar_dashboard_html,
+    )
+
+    tarea_recalcular_kpis >> tarea_auditar_kpis >> tarea_generar_dashboard

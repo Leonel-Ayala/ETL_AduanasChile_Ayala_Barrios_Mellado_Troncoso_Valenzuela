@@ -11,25 +11,12 @@ try:
 except ImportError:
     PostgresHook = None
 
+from src.db import obtener_conexion
+
 logger = logging.getLogger("airflow.task")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     logger = logging.getLogger("etl_audit")
-
-
-def _obtener_conexion_postgres():
-    if PostgresHook:
-        hook = PostgresHook(postgres_conn_id="postgres_dw")
-        return hook.get_conn()
-    import os
-    import psycopg2
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "aduanas_dw_secure_pass"),
-        dbname=os.getenv("POSTGRES_DB", "aduanas_dw")
-    )
 
 
 def registrar_auditoria_exito(fuente, **context):
@@ -57,13 +44,27 @@ def registrar_auditoria_exito(fuente, **context):
     filas_leidas = 0
     filas_cargadas = 0
     pct_nulos = 0.0
+    total_disp = 0
+    es_parcial = False
+    atipicos = 0
+    rechazados = 0
 
     if ti:
         filas_leidas = ti.xcom_pull(key="filas_leidas", default=0) or 0
         filas_cargadas = ti.xcom_pull(key="filas_cargadas", default=0) or 0
         pct_nulos = ti.xcom_pull(key="porcentaje_nulos", default=0.0) or 0.0
+        total_disp = ti.xcom_pull(key="total_disponible_api", default=0) or 0
+        es_parcial = bool(ti.xcom_pull(key="es_carga_parcial", default=False))
+        atipicos = ti.xcom_pull(key="registros_atipicos", default=0) or 0
+        rechazados = ti.xcom_pull(key="registros_rechazados", default=0) or 0
 
-    conn = _obtener_conexion_postgres()
+    tipo_ext = f"Muestra controlada ({filas_leidas}/{total_disp:,})" if es_parcial and total_disp > 0 else f"Completa ({filas_leidas:,}/{total_disp or filas_leidas:,})"
+    detalle_mensaje = (
+        f"Pipeline ejecutado exitosamente. Extracción: {tipo_ext}. "
+        f"Calidad: nulos={pct_nulos}%, atípicos={atipicos}, rechazados={rechazados}."
+    )
+
+    conn = obtener_conexion()
     cur = conn.cursor()
 
     sql = """
@@ -87,10 +88,13 @@ def registrar_auditoria_exito(fuente, **context):
             int(filas_cargadas),
             float(pct_nulos),
             "SUCCESS",
-            "Pipeline ejecutado exitosamente sin inconsistencias."
+            detalle_mensaje
         ))
         conn.commit()
-        logger.info(f"[AUDITORÍA EXITOSA] dag_id={dag_id}, run_id={run_id}, leídas={filas_leidas}, cargadas={filas_cargadas}, nulos={pct_nulos}%, duración={duracion}s")
+        logger.info(
+            f"[AUDITORÍA EXITOSA] dag_id={dag_id}, run_id={run_id}, leídas={filas_leidas}, cargadas={filas_cargadas}, "
+            f"nulos={pct_nulos}%, atípicos={atipicos}, rechazados={rechazados}, duración={duracion}s"
+        )
     except Exception as e:
         conn.rollback()
         logger.error(f"Error al registrar auditoría de éxito: {e}")
@@ -127,7 +131,7 @@ def registrar_falla_callback(context):
     logger.error(f"[ALERTA DE AUDITORÍA: FALLA DETECTADA] {mensaje_error} (dag_id={dag_id}, run_id={run_id})")
 
     try:
-        conn = _obtener_conexion_postgres()
+        conn = obtener_conexion()
         cur = conn.cursor()
 
         sql = """

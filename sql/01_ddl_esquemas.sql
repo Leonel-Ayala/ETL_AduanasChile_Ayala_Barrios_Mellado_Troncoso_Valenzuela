@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS staging.stg_operaciones_aduanas (
     monto_seguro_usd NUMERIC(18,2) NOT NULL DEFAULT 0,
     monto_cif_usd NUMERIC(18,2) NOT NULL DEFAULT 0,
     costo_logistico_usd NUMERIC(18,2) NOT NULL DEFAULT 0,
+    montos_estimados BOOLEAN NOT NULL DEFAULT FALSE,
+    peso_estimado BOOLEAN NOT NULL DEFAULT FALSE,
+    aduana_estimada BOOLEAN NOT NULL DEFAULT FALSE,
+    es_atipico BOOLEAN NOT NULL DEFAULT FALSE,
     run_id VARCHAR(150),
     fecha_procesamiento TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -111,10 +115,10 @@ CREATE TABLE IF NOT EXISTS dw.dim_via_transporte (
 CREATE TABLE IF NOT EXISTS dw.fact_comercio_exterior (
     id_hecho BIGSERIAL PRIMARY KEY,
     codigo_operacion VARCHAR(120) UNIQUE NOT NULL, -- Clave natural única para idempotencia estricta
-    id_tiempo INT NOT NULL REFERENCES dw.dim_tiempo(id_tiempo),
-    id_aduana INT NOT NULL REFERENCES dw.dim_aduana(id_aduana),
-    id_pais INT NOT NULL REFERENCES dw.dim_pais(id_pais),
-    id_via_transporte INT NOT NULL REFERENCES dw.dim_via_transporte(id_via_transporte),
+    id_tiempo INT NOT NULL REFERENCES dw.dim_tiempo(id_tiempo) ON DELETE RESTRICT,
+    id_aduana INT NOT NULL REFERENCES dw.dim_aduana(id_aduana) ON DELETE RESTRICT,
+    id_pais INT NOT NULL REFERENCES dw.dim_pais(id_pais) ON DELETE RESTRICT,
+    id_via_transporte INT NOT NULL REFERENCES dw.dim_via_transporte(id_via_transporte) ON DELETE RESTRICT,
     tipo_flujo VARCHAR(20) NOT NULL CHECK (tipo_flujo IN ('IMPORTACION', 'EXPORTACION')),
     peso_bruto_kg NUMERIC(18,2) NOT NULL DEFAULT 0,
     peso_toneladas NUMERIC(18,4) NOT NULL DEFAULT 0,
@@ -124,6 +128,10 @@ CREATE TABLE IF NOT EXISTS dw.fact_comercio_exterior (
     monto_seguro_usd NUMERIC(18,2) NOT NULL DEFAULT 0,
     monto_cif_usd NUMERIC(18,2) NOT NULL DEFAULT 0,
     costo_logistico_usd NUMERIC(18,2) NOT NULL DEFAULT 0,
+    montos_estimados BOOLEAN NOT NULL DEFAULT FALSE,
+    peso_estimado BOOLEAN NOT NULL DEFAULT FALSE,
+    aduana_estimada BOOLEAN NOT NULL DEFAULT FALSE,
+    es_atipico BOOLEAN NOT NULL DEFAULT FALSE,
     fecha_carga_dw TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -143,8 +151,8 @@ CREATE TABLE IF NOT EXISTS mart.kpi_01_balanza_comercial_aduana (
     exportaciones_fob_usd NUMERIC(18,2) DEFAULT 0,
     importaciones_cif_usd NUMERIC(18,2) DEFAULT 0,
     saldo_comercial_usd NUMERIC(18,2) DEFAULT 0,
-    tasa_cobertura_pct NUMERIC(8,2) DEFAULT 0,
-    cumple_meta BOOLEAN DEFAULT FALSE,
+    tasa_cobertura_pct NUMERIC(8,2) DEFAULT NULL,
+    cumple_meta BOOLEAN DEFAULT NULL,
     fecha_calculo TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_kpi_01 UNIQUE (codigo_aduana, anio, mes)
 );

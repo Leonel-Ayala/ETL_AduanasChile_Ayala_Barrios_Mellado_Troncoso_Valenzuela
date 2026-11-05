@@ -34,9 +34,10 @@ SELECT
         WHEN COALESCE(SUM(CASE WHEN f.tipo_flujo = 'IMPORTACION' THEN f.monto_cif_usd ELSE 0 END), 0) > 0 THEN
             ROUND((SUM(CASE WHEN f.tipo_flujo = 'EXPORTACION' THEN f.monto_fob_usd ELSE 0 END) /
                    SUM(CASE WHEN f.tipo_flujo = 'IMPORTACION' THEN f.monto_cif_usd ELSE 0 END)) * 100.0, 2)
-        ELSE 100.00
+        ELSE NULL -- Sin importaciones: cobertura no definida
     END AS tasa_cobertura_pct,
     CASE
+        WHEN COALESCE(SUM(CASE WHEN f.tipo_flujo = 'IMPORTACION' THEN f.monto_cif_usd ELSE 0 END), 0) = 0 THEN NULL
         WHEN (COALESCE(SUM(CASE WHEN f.tipo_flujo = 'EXPORTACION' THEN f.monto_fob_usd ELSE 0 END), 0) >=
               COALESCE(SUM(CASE WHEN f.tipo_flujo = 'IMPORTACION' THEN f.monto_cif_usd ELSE 0 END), 0))
         THEN TRUE ELSE FALSE
@@ -133,6 +134,7 @@ SELECT
 FROM dw.fact_comercio_exterior f
 JOIN dw.dim_aduana a ON a.id_aduana = f.id_aduana
 CROSS JOIN total_nacional tn
+WHERE a.codigo_aduana <> 0
 GROUP BY a.codigo_aduana, a.nombre_aduana, tn.total_toneladas;
 
 -- ------------------------------------------------------------------------------
@@ -173,6 +175,7 @@ SELECT
     CURRENT_TIMESTAMP
 FROM dw.fact_comercio_exterior f
 JOIN dw.dim_pais p ON p.id_pais = f.id_pais
+WHERE p.codigo_pais <> 0
 GROUP BY f.tipo_flujo, p.codigo_pais, p.nombre_pais;
 
 -- ------------------------------------------------------------------------------
@@ -257,4 +260,5 @@ SELECT
     CURRENT_TIMESTAMP
 FROM totales_pais tp
 CROSS JOIN total_nacional tn
+WHERE tp.codigo_pais <> 0
 ORDER BY tp.intercambio_total_usd DESC;

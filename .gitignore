@@ -12,3 +12,5 @@ salida/
 *.pkl
 .vscode/
 .idea/
+*.docx
+reporte_estadisticas_aduanas.html

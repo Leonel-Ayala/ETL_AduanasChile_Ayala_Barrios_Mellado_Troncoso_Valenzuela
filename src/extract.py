@@ -37,20 +37,55 @@ def _obtener_variable(nombre, valor_defecto=""):
     return valor_defecto
 
 
-def _obtener_conexion_postgres():
-    """Retorna conexión a PostgreSQL usando PostgresHook de Airflow."""
-    if PostgresHook:
-        hook = PostgresHook(postgres_conn_id="postgres_dw")
-        return hook.get_conn()
-    import os
-    import psycopg2
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "aduanas_dw_secure_pass"),
-        dbname=os.getenv("POSTGRES_DB", "aduanas_dw")
-    )
+from src.db import obtener_conexion
+
+USER_AGENT = "ETL-Aduanas-UCM-INF522/1.0"
+
+
+def _ejecutar_request_con_backoff(url, params, headers, timeout=20, max_intentos=3):
+    """
+    Realiza peticiones HTTP gestionando límites de tasa (HTTP 429 Too Many Requests).
+    Respeta el encabezado 'Retry-After' y aplica retroceso exponencial ante congestión o errores transitorios.
+    """
+    intento = 0
+    while intento <= max_intentos:
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=timeout)
+
+            # Manejo específico del límite de uso (HTTP 429 Too Many Requests)
+            if resp.status_code == 429:
+                intento += 1
+                retry_after = resp.headers.get("Retry-After")
+                if retry_after and retry_after.strip().isdigit():
+                    espera = int(retry_after.strip())
+                else:
+                    espera = 2 ** intento  # Retroceso exponencial: 2s, 4s, 8s
+
+                logger.warning(
+                    f"[RATE LIMIT] HTTP 429 (Too Many Requests). Reintento {intento}/{max_intentos}. "
+                    f"Pausa de {espera}s según Retry-After / backoff exponencial..."
+                )
+                if intento > max_intentos:
+                    resp.raise_for_status()
+                time.sleep(espera)
+                continue
+
+            resp.raise_for_status()
+            data = resp.json()
+            return data
+
+        except (Timeout, ConnectionError) as err:
+            intento += 1
+            if intento > max_intentos:
+                logger.error(f"[ERROR CONEXIÓN] Intentos agotados ({max_intentos}) ante error de red: {err}")
+                raise
+            espera = 2 ** intento
+            logger.warning(f"Falla temporal de red/timeout ({err}). Reintento {intento}/{max_intentos} en {espera}s...")
+            time.sleep(espera)
+        except HTTPError as err:
+            if resp.status_code == 429 and intento <= max_intentos:
+                continue
+            raise
 
 
 def validar_api_disponible(tipo_flujo):
@@ -71,7 +106,7 @@ def validar_api_disponible(tipo_flujo):
         raise ValueError(f"Tipo de flujo no válido: {tipo_flujo}")
 
     api_token = _obtener_variable("aduanas_api_token", "")
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AntigravityETL/1.0"}
+    headers = {"User-Agent": USER_AGENT}
     if api_token:
         headers["Authorization"] = api_token
 
@@ -79,16 +114,14 @@ def validar_api_disponible(tipo_flujo):
     logger.info(f"Validando disponibilidad de API para {flujo}: {base_url} (resource_id={resource_id})")
 
     try:
-        response = requests.get(base_url, params=params, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        data = _ejecutar_request_con_backoff(base_url, params=params, headers=headers, timeout=10)
         if not data.get("success", False):
             raise RuntimeError(f"La API respondió sin éxito ('success': False): {data.get('error')}")
         
         total = data.get("result", {}).get("total", 0)
         logger.info(f"[VALIDACIÓN EXITOSA] API de {flujo} operativa. Total disponible en origen: {total:,} registros.")
         return True
-    except RequestException as e:
+    except Exception as e:
         logger.error(f"[ERROR CRÍTICO] Fallo en la validación previa de la API de {flujo}: {e}")
         raise RuntimeError(f"Error de conexión con la API de Aduanas ({flujo}): {str(e)}") from e
 
@@ -96,8 +129,7 @@ def validar_api_disponible(tipo_flujo):
 def extraer_datos_api_a_raw(tipo_flujo, **context):
     """
     Extrae los datos desde la API mediante paginación por bloques y almacena el JSON crudo en el esquema raw.
-    Registra run_id, logical_date y fecha_extraccion.
-    Retorna el total de registros extraídos para XCom.
+    Gestiona límites de uso (HTTP 429), paginación completa o controlada, y registra run_id, logical_date y auditoría.
     """
     flujo = tipo_flujo.upper()
     dag_run = context.get("dag_run")
@@ -122,57 +154,66 @@ def extraer_datos_api_a_raw(tipo_flujo, **context):
         raise ValueError(f"Tipo de flujo no válido: {tipo_flujo}")
 
     page_limit = int(_obtener_variable("aduanas_api_page_limit", "500"))
-    max_pages = int(_obtener_variable("aduanas_api_max_pages", "5"))
-    api_token = _obtener_variable("aduanas_api_token", "")
+    max_pages_var = _obtener_variable("aduanas_api_max_pages", "5")
+    try:
+        max_pages = int(max_pages_var)
+    except (ValueError, TypeError):
+        max_pages = 5
 
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AntigravityETL/1.0"}
+    api_token = _obtener_variable("aduanas_api_token", "")
+    headers = {"User-Agent": USER_AGENT}
     if api_token:
         headers["Authorization"] = api_token
 
-    conn = _obtener_conexion_postgres()
+    conn = obtener_conexion()
     cur = conn.cursor()
 
-    # Optimización según directriz de arquitectura:
     # La capa raw es un área transitoria de aterrizaje para el lote actual.
     # Se vacía la tabla correspondiente antes de la extracción para evitar basura histórica intermedia.
-    # El contraste con lo histórico se realiza exclusivamente en el Data Warehouse (dw).
     logger.info(f"Limpiando tabla transitoria {tabla_raw} antes de la extracción...")
     cur.execute(f"TRUNCATE TABLE {tabla_raw};")
     conn.commit()
 
     total_filas_extraidas = 0
+    total_en_origen = 0
     pagina = 0
 
-    logger.info(f"Iniciando extracción paginada para {flujo}: límite por página={page_limit}, máx páginas={max_pages}")
+    modo_paginacion = "completa (hasta fin de datos)" if max_pages <= 0 else f"controlada (máx {max_pages} páginas / {max_pages * page_limit} filas)"
+    logger.info(f"Iniciando extracción paginada para {flujo}: límite={page_limit}, modo={modo_paginacion}")
 
     try:
-        while pagina < max_pages:
+        while True:
+            # Control de parada si se configuró un límite de páginas positivo
+            if max_pages > 0 and pagina >= max_pages:
+                logger.info(f"Se alcanzó el límite configurado de páginas ({max_pages}). Fin de extracción controlada.")
+                break
+
             offset = pagina * page_limit
             params = {
                 "resource_id": resource_id,
                 "limit": page_limit,
                 "offset": offset
             }
-            logger.info(f"Consultando página {pagina + 1}/{max_pages} (offset={offset})...")
+            logger.info(f"Consultando página {pagina + 1} (offset={offset})...")
             
             try:
-                resp = requests.get(base_url, params=params, headers=headers, timeout=20)
-                resp.raise_for_status()
-                data = resp.json()
-            except (Timeout, ConnectionError, HTTPError) as err:
+                data = _ejecutar_request_con_backoff(base_url, params=params, headers=headers, timeout=25)
+            except Exception as err:
                 logger.error(f"Error al consumir API en offset {offset}: {err}")
-                raise RuntimeError(f"Falla HTTP durante la extracción: {err}") from err
+                raise RuntimeError(f"Falla HTTP/Red durante la extracción: {err}") from err
 
             if not data.get("success", False):
-                raise RuntimeError(f"Respuesta no exitosa de API en offset {offset}")
+                raise RuntimeError(f"Respuesta no exitosa de API en offset {offset}: {data.get('error')}")
 
-            records = data.get("result", {}).get("records", [])
+            result = data.get("result", {})
+            total_en_origen = result.get("total", total_en_origen)
+            records = result.get("records", [])
             num_records = len(records)
             if num_records == 0:
                 logger.info("No se recibieron más registros desde la API. Fin de paginación.")
                 break
 
-            # Inserción de cada registro individual en esquema raw para visualización 1-a-1
+            # Inserción por lotes en esquema raw
             from psycopg2.extras import execute_values
             insert_query = f"""
                 INSERT INTO {tabla_raw} (run_id, fecha_logical, resource_id, offset_pagina, payload, fecha_extraccion)
@@ -187,18 +228,34 @@ def extraer_datos_api_a_raw(tipo_flujo, **context):
 
             total_filas_extraidas += num_records
             pagina += 1
-            logger.info(f"Página {pagina} guardada en {tabla_raw}. {num_records} registros insertados individualmente (Total acumulado: {total_filas_extraidas}).")
+            logger.info(
+                f"Página {pagina} guardada en {tabla_raw}. {num_records} registros insertados. "
+                f"Acumulado: {total_filas_extraidas:,} de {total_en_origen:,} disponibles en origen."
+            )
 
-            # Control de tasa de peticiones (rate limiting)
+            if total_en_origen > 0 and offset + num_records >= total_en_origen:
+                logger.info("Se ha alcanzado la totalidad de registros disponibles en la API.")
+                break
+
+            # Control preventivo de tasa de peticiones (rate limiting)
             time.sleep(0.5)
 
     finally:
         cur.close()
         conn.close()
 
-    logger.info(f"Extracción completada con éxito para {flujo}. Total filas leídas: {total_filas_extraidas}")
-    # Guardar en XCom para la auditoría
+    es_carga_parcial = bool(total_en_origen > 0 and total_filas_extraidas < total_en_origen)
+    resumen_carga = "MUESTRA CONTROLADA" if es_carga_parcial else "CARGA COMPLETA"
+    logger.info(
+        f"Extracción finalizada para {flujo} ({resumen_carga}): "
+        f"{total_filas_extraidas:,} filas extraídas de {total_en_origen:,} disponibles en origen."
+    )
+
+    # Guardar métricas en XCom para la auditoría y control de calidad
     ti = context.get("ti")
     if ti:
         ti.xcom_push(key="filas_leidas", value=total_filas_extraidas)
+        ti.xcom_push(key="total_disponible_api", value=total_en_origen)
+        ti.xcom_push(key="es_carga_parcial", value=es_carga_parcial)
+
     return total_filas_extraidas

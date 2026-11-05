@@ -14,25 +14,12 @@ try:
 except ImportError:
     PostgresHook = None
 
+from src.db import obtener_conexion
+
 logger = logging.getLogger("airflow.task")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     logger = logging.getLogger("etl_load")
-
-
-def _obtener_conexion_postgres():
-    if PostgresHook:
-        hook = PostgresHook(postgres_conn_id="postgres_dw")
-        return hook.get_conn()
-    import os
-    import psycopg2
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "aduanas_dw_secure_pass"),
-        dbname=os.getenv("POSTGRES_DB", "aduanas_dw")
-    )
 
 
 def cargar_datos_a_dw(tipo_flujo, **context):
@@ -43,7 +30,7 @@ def cargar_datos_a_dw(tipo_flujo, **context):
     dag_run = context.get("dag_run")
     run_id = dag_run.run_id if dag_run else f"manual_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    conn = _obtener_conexion_postgres()
+    conn = obtener_conexion()
     cur = conn.cursor()
 
     logger.info(f"Iniciando carga idempotente en DW para flujo '{flujo}' (run_id='{run_id}')...")
@@ -162,7 +149,8 @@ def cargar_datos_a_dw(tipo_flujo, **context):
                 codigo_operacion, id_tiempo, id_aduana, id_pais, id_via_transporte,
                 tipo_flujo, peso_bruto_kg, peso_toneladas, cantidad_bultos,
                 monto_fob_usd, monto_flete_usd, monto_seguro_usd, monto_cif_usd,
-                costo_logistico_usd, fecha_carga_dw
+                costo_logistico_usd, montos_estimados, peso_estimado, aduana_estimada,
+                es_atipico, fecha_carga_dw
             )
             SELECT DISTINCT ON (stg.codigo_operacion)
                 stg.codigo_operacion,
@@ -179,6 +167,10 @@ def cargar_datos_a_dw(tipo_flujo, **context):
                 stg.monto_seguro_usd,
                 stg.monto_cif_usd,
                 stg.costo_logistico_usd,
+                stg.montos_estimados,
+                stg.peso_estimado,
+                stg.aduana_estimada,
+                stg.es_atipico,
                 CURRENT_TIMESTAMP
             FROM staging.stg_operaciones_aduanas stg
             JOIN dw.dim_tiempo t ON t.fecha = stg.fecha_operacion
@@ -196,6 +188,10 @@ def cargar_datos_a_dw(tipo_flujo, **context):
                 monto_seguro_usd = EXCLUDED.monto_seguro_usd,
                 monto_cif_usd = EXCLUDED.monto_cif_usd,
                 costo_logistico_usd = EXCLUDED.costo_logistico_usd,
+                montos_estimados = EXCLUDED.montos_estimados,
+                peso_estimado = EXCLUDED.peso_estimado,
+                aduana_estimada = EXCLUDED.aduana_estimada,
+                es_atipico = EXCLUDED.es_atipico,
                 fecha_carga_dw = CURRENT_TIMESTAMP;
         """
         cur.execute(sql_fact, {"tipo_flujo": flujo, "run_id": run_id})

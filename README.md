@@ -16,7 +16,7 @@ Este proyecto implementa una arquitectura moderna de ingeniería de datos para l
   - `dag_02_etl_exportaciones`: Ingesta y modelado del flujo de exportaciones.
   - `dag_03_indicadores_mart`: Recálculo SQL de los 5 Indicadores de Gestión en el Data Mart.
 - **Aislamiento de Fallas:** Si un DAG o fuente falla, los demás continúan ejecutándose sin interrumpir el servicio.
-- **Carga Idempotente:** Todas las inserciones en staging, DW (`dw.fact_comercio_exterior`) y Data Mart utilizan `ON CONFLICT DO UPDATE` y transacciones atómicas, permitiendo re-ejecuciones y reprocesamiento histórico (backfill) sin duplicación de registros.
+- **Carga Idempotente:** Todas las inserciones en staging, DW (`dw.fact_comercio_exterior`) y Data Mart utilizan `ON CONFLICT DO UPDATE` y transacciones atómicas, permitiendo re-ejecuciones seguras e idempotentes sin duplicación de registros.
 
 ---
 
@@ -80,11 +80,15 @@ flowchart TD
 ## 4. GUÍA DE INSTALACIÓN Y PUESTA EN MARCHA (DOCKER)
 
 ### Paso 1: Configurar Variables de Entorno
-Copiar la plantilla de variables de entorno:
+Copiar la plantilla de variables de entorno y editarla con credenciales seguras:
 ```bash
 cp .env.example .env
 ```
-*(El archivo `.env` ya incluye los puertos y contraseñas por defecto preconfigurados para pruebas locales).*
+Edite `.env` y defina una contraseña propia en `POSTGRES_PASSWORD` y una clave de cifrado generada en `AIRFLOW_FERNET_KEY` antes de levantar los contenedores.
+Para generar la clave Fernet:
+```bash
+python -c "import secrets, base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+```
 
 ### Paso 2: Levantar Contenedores con Docker Compose
 ```bash
@@ -96,7 +100,7 @@ Esto levantará:
 - `aduanas-airflow-webserver` (Interfaz Web de Airflow en `http://localhost:8080`).
 - `aduanas-airflow-scheduler` (Planificador y ejecutor de tareas).
 
-> **Nota para conexión desde DBeaver en Windows:** Conectar a `localhost:5433`, Base de datos: `aduanas_dw`, Usuario: `postgres`, Contraseña: `aduanas_dw_secure_pass`.
+> **Nota para conexión desde DBeaver en Windows:** Conectar a `localhost:5433`, Base de datos: `aduanas_dw`, Usuario y contraseña los definidos en su archivo `.env`.
 
 ### Paso 3: Inicializar Conexiones y Variables en Airflow
 Ejecutar el script de inicialización automatizada:
@@ -104,10 +108,8 @@ Ejecutar el script de inicialización automatizada:
 docker exec -it aduanas-airflow-webserver python /opt/airflow/scripts/init_airflow_resources.py
 ```
 Este script crea:
-- Conexión **`postgres_dw`**: `postgresql://postgres:aduanas_dw_secure_pass@postgres:5432/aduanas_dw`.
-- Variables de la API: `aduanas_api_base_url`, `aduanas_resource_id_importaciones`, `aduanas_resource_id_exportaciones`, `aduanas_api_page_limit` (500), `aduanas_api_max_pages` (5).
-
-> 📘 **Guía Maestra de Presentación y Examen Oral:** Consulta [GUIA_PRESENTACION_Y_DEFENSA.md](GUIA_PRESENTACION_Y_DEFENSA.md) para el desglose de los 8 minutos de exposición, protocolo de falla en vivo y banco de preguntas individuales.
+- Conexión **`postgres_dw`**, configurada con los valores de `POSTGRES_USER`, `POSTGRES_PASSWORD` y `POSTGRES_DB` del archivo `.env`.
+- Variables de Airflow: `aduanas_api_url_importaciones`, `aduanas_api_url_exportaciones`, `aduanas_resource_id_importaciones`, `aduanas_resource_id_exportaciones`, `aduanas_api_page_limit` (500), `aduanas_api_max_pages` (5), `aduanas_api_token` (vacía).
 
 ---
 
@@ -192,9 +194,9 @@ Cada indicador en el esquema `mart.*` incluye explícitamente en cada registro s
 Para cumplir con el requerimiento de presentación grupal frente al docente:
 
 1. **Provocar la Falla en Vivo:**
-   Cambiar la URL base de la API en Airflow a un endpoint inexistente:
+   Cambiar la URL de la API de importaciones en Airflow a un endpoint inexistente:
    ```bash
-   docker exec -it aduanas-airflow-webserver airflow variables set aduanas_api_base_url "https://datos.gob.cl/api/3/action/endpoint_invalido"
+   docker exec -it aduanas-airflow-webserver airflow variables set aduanas_api_url_importaciones "https://datos.gob.cl/api/3/action/endpoint_invalido"
    ```
 2. **Disparar `dag_01_etl_importaciones`:**
    - La tarea `validar_api` fallará inmediatamente al no obtener código HTTP 200.
@@ -213,7 +215,7 @@ Para cumplir con el requerimiento de presentación grupal frente al docente:
 5. **Restaurar el Servicio:**
    Restaurar la URL válida de la API:
    ```bash
-   docker exec -it aduanas-airflow-webserver airflow variables set aduanas_api_base_url "https://datos.gob.cl/api/3/action/datastore_search"
+   docker exec -it aduanas-airflow-webserver airflow variables set aduanas_api_url_importaciones "https://datos.gob.cl/api/3/action/datastore_search"
    ```
    Volver a disparar `dag_01_etl_importaciones` y comprobar que finaliza exitosamente en `SUCCESS`.
 

@@ -12,13 +12,18 @@ import hashlib
 import json
 import logging
 import unicodedata
+import zlib
 from datetime import datetime
 import pandas as pd
 import numpy as np
 
+from src.db import obtener_conexion
+
 try:
+    from airflow.models import Variable
     from airflow.providers.postgres.hooks.postgres import PostgresHook
 except ImportError:
+    Variable = None
     PostgresHook = None
 
 logger = logging.getLogger("airflow.task")
@@ -31,6 +36,7 @@ if not logger.handlers:
 # DICCIONARIOS OFICIALES DE MAPEO Y RECODIFICACIÓN (ADUANAS DE CHILE)
 # --------------------------------------------------------------------------
 MAPA_ADUANAS = {
+    0: {"nombre": "SIN INFORMACION", "zona": "SIN INFORMACION"},
     34: {"nombre": "SAN ANTONIO", "zona": "CENTRO"},
     33: {"nombre": "VALPARAISO", "zona": "CENTRO"},
     48: {"nombre": "METROPOLITANA", "zona": "CENTRO"},
@@ -73,6 +79,7 @@ MAPA_VIAS_TRANSPORTE = {
 }
 
 MAPA_PAISES = {
+    "SIN INFORMACION": {"codigo": 0, "nombre": "SIN INFORMACION", "region": "SIN INFORMACION"},
     "CHINA": {"codigo": 105, "nombre": "CHINA", "region": "ASIA"},
     "ESTADOS UNIDOS": {"codigo": 225, "nombre": "ESTADOS UNIDOS", "region": "AMERICA DEL NORTE"},
     "ALEMANIA": {"codigo": 203, "nombre": "ALEMANIA", "region": "EUROPA"},
@@ -93,6 +100,11 @@ MAPA_PAISES = {
     "PAISES BAJOS": {"codigo": 215, "nombre": "PAISES BAJOS", "region": "EUROPA"},
     "INDIA": {"codigo": 108, "nombre": "INDIA", "region": "ASIA"},
 }
+
+
+def _codigo_pais_estable(nombre: str) -> int:
+    """Código determinístico (igual en todas las ejecuciones) para países fuera del diccionario."""
+    return 1000 + zlib.crc32(nombre.encode("utf-8")) % 900000
 
 
 def _limpiar_texto(valor):
@@ -121,21 +133,6 @@ def _limpiar_numero(valor, defecto=0.0):
         return defecto
 
 
-def _obtener_conexion_postgres():
-    if PostgresHook:
-        hook = PostgresHook(postgres_conn_id="postgres_dw")
-        return hook.get_conn()
-    import os
-    import psycopg2
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "aduanas_dw_secure_pass"),
-        dbname=os.getenv("POSTGRES_DB", "aduanas_dw")
-    )
-
-
 def transformar_datos_a_staging(tipo_flujo, **context):
     """
     Lee datos crudos desde esquema raw para el run_id actual, aplica transformaciones,
@@ -147,7 +144,7 @@ def transformar_datos_a_staging(tipo_flujo, **context):
 
     tabla_raw = "raw.importaciones_raw" if flujo == "IMPORTACION" else "raw.exportaciones_raw"
 
-    conn = _obtener_conexion_postgres()
+    conn = obtener_conexion()
     cur = conn.cursor()
 
     logger.info(f"Leyendo payloads crudos desde {tabla_raw} para run_id='{run_id}'...")
@@ -182,37 +179,64 @@ def transformar_datos_a_staging(tipo_flujo, **context):
 
     df_raw = pd.DataFrame(todos_los_registros)
 
-    # 1. CÁLCULO DE MÉTRICA DE NULOS
+    # 1. CÁLCULO DE MÉTRICA DE NULOS Y VALIDACIÓN DE CALIDAD (QUALITY GATE / CIRCUIT BREAKER)
     total_celdas = df_raw.size
     celdas_nulas = df_raw.isna().sum().sum() + (df_raw == "").sum().sum()
     pct_nulos = round(float((celdas_nulas / total_celdas) * 100), 2) if total_celdas > 0 else 0.0
     logger.info(f"Métrica de calidad: {celdas_nulas}/{total_celdas} celdas nulas o vacías ({pct_nulos}%).")
 
+    # Umbral de calidad: Detiene la carga si los nulos superan el límite tolerable para proteger el DW
+    umbral_max_nulos = 25.0
+    if Variable:
+        try:
+            umbral_max_nulos = float(Variable.get("aduanas_max_pct_nulos_permitido", default_var="25.0"))
+        except Exception:
+            pass
+
+    if pct_nulos > umbral_max_nulos:
+        raise ValueError(
+            f"[CIRCUIT BREAKER] Violación de Quality Gate: Porcentaje de nulos ({pct_nulos}%) "
+            f"supera el umbral máximo tolerado ({umbral_max_nulos}%). Carga abortada para proteger el Data Warehouse."
+        )
+
     ti = context.get("ti")
     if ti:
         ti.xcom_push(key="porcentaje_nulos", value=pct_nulos)
 
-    # 2. TRANSFORMACIÓN Y NORMALIZACIÓN DE REGISTROS
+    # 2. TRANSFORMACIÓN, CONTROL DE ATÍPICOS Y NORMALIZACIÓN DE REGISTROS
     registros_staging = []
+    registros_rechazados = 0
+    registros_atipicos = 0
 
     for idx, row in df_raw.iterrows():
         # Extracción flexible: soporta formulario DIN/DUS o formato Comercio Exterior
-        # Año y Mes
-        anio = int(row.get("Anio") or row.get("ANO_REG") or datetime.now().year)
-        mes = int(row.get("Mes") or 1)
-        if mes < 1 or mes > 12:
-            mes = 1
+        # Año y Mes con validación estricta (declaraciones sin fecha válida se rechazan)
+        anio_raw = row.get("Anio") or row.get("ANO_REG")
+        mes_raw = row.get("Mes")
+        try:
+            anio = int(anio_raw)
+            mes = int(mes_raw)
+            if not (1 <= mes <= 12 and 1900 <= anio <= 2100):
+                raise ValueError
+        except (TypeError, ValueError):
+            registros_rechazados += 1
+            continue
 
         fecha_op = f"{anio:04d}-{mes:02d}-01"
 
-        # País
-        nombre_pais_raw = _limpiar_texto(row.get("Pais origen") or row.get("Pais destino") or row.get("PA_ORIG") or row.get("PA_ADQ") or "CHINA")
-        info_pais = MAPA_PAISES.get(nombre_pais_raw, {"codigo": 400 + (hash(nombre_pais_raw) % 500), "nombre": nombre_pais_raw or "DESCONOCIDO", "region": "INTERNACIONAL"})
+        # País: Sin inventar China como default (evita sesgar KPIs 4 y 5)
+        nombre_pais_raw = _limpiar_texto(
+            row.get("Pais origen") or row.get("Pais destino") or row.get("PA_ORIG") or row.get("PA_ADQ")
+        ) or "SIN INFORMACION"
+
+        info_pais = MAPA_PAISES.get(
+            nombre_pais_raw,
+            {"codigo": _codigo_pais_estable(nombre_pais_raw), "nombre": nombre_pais_raw, "region": "SIN CLASIFICAR"}
+        )
         cod_pais = info_pais["codigo"]
         nom_pais = info_pais["nombre"]
 
-        # Aduana y Vía de Transporte
-        # Si viene en dataset de exportaciones con región de origen:
+        # Aduana: Sin turnos artificiales (datos reales o SIN INFORMACION)
         id_region = str(row.get("ID region") or "").strip()
         reg_nombre = _limpiar_texto(row.get("Region origen") or "")
         
@@ -227,13 +251,18 @@ def transformar_datos_a_staging(tipo_flujo, **context):
             cod_aduana = MAPA_REGION_A_ADUANA.get(id_region) or MAPA_REGION_A_ADUANA.get(reg_nombre)
         
         if not cod_aduana:
-            # Asignación probabilística y balanceada según el flujo
-            cod_aduana = 34 if (idx % 2 == 0) else (33 if (idx % 3 == 0) else 48)
+            cod_aduana = 0 # No se inventa la aduana si la fuente no la informa
+            aduana_estimada = True
+        else:
+            aduana_estimada = False
 
-        info_aduana = MAPA_ADUANAS.get(cod_aduana, {"nombre": f"ADUANA {cod_aduana}", "zona": "CENTRO"})
+        info_aduana = MAPA_ADUANAS.get(
+            cod_aduana,
+            {"nombre": "SIN INFORMACION", "zona": "SIN INFORMACION"} if cod_aduana == 0 else {"nombre": f"ADUANA {cod_aduana}", "zona": "CENTRO"}
+        )
         nom_aduana = info_aduana["nombre"]
 
-        # Vía de transporte
+        # Vía de transporte (inferida con reglas de negocio cuando no viene directa)
         cod_via = None
         if "VIA_TRAN" in row and pd.notna(row["VIA_TRAN"]):
             try:
@@ -242,7 +271,7 @@ def transformar_datos_a_staging(tipo_flujo, **context):
                 pass
         
         if not cod_via:
-            # Vecinos terrestres vs marítimo vs aéreo
+            # Inferencia declarada: vecinos terrestres vs marítimo vs aéreo
             if nom_pais in ["ARGENTINA", "PERU", "BOLIVIA"]:
                 cod_via = 7  # Terrestre
             elif cod_aduana == 48:
@@ -255,7 +284,6 @@ def transformar_datos_a_staging(tipo_flujo, **context):
         # Código de operación único
         cod_op_raw = str(row.get("NUMENCRIPTADO") or row.get("NUM_OPERACION") or "").strip()
         if not cod_op_raw:
-            # Clave natural determinística para idempotencia
             raw_id = row.get("_id") or idx
             prod_id = str(row.get("Codigo producto") or "00000000").strip()
             cod_op_raw = f"{flujo[:3]}-{anio}-{mes:02d}-{prod_id}-{cod_pais}-{raw_id}"
@@ -266,9 +294,10 @@ def transformar_datos_a_staging(tipo_flujo, **context):
         monto_flete = _limpiar_numero(row.get("FLETE"))
         monto_seguro = _limpiar_numero(row.get("SEGURO"))
 
+        montos_estimados = False
         if flujo == "IMPORTACION":
             if monto_cif > 0 and monto_fob == 0:
-                # Estimar desglose real de comercio exterior
+                montos_estimados = True
                 monto_fob = round(monto_cif * 0.91, 2)
                 monto_flete = round(monto_cif * 0.08, 2)
                 monto_seguro = round(monto_cif - monto_fob - monto_flete, 2)
@@ -277,19 +306,41 @@ def transformar_datos_a_staging(tipo_flujo, **context):
                 monto_cif = round(monto_fob + costo_logistico, 2)
         else: # EXPORTACION
             if monto_fob > 0 and monto_cif == 0:
-                # FOB es el valor pactado de exportación; flete y seguro son 0 en frontera chilena
                 monto_cif = monto_fob
                 costo_logistico = 0.0
             else:
                 costo_logistico = round(monto_flete + monto_seguro, 2)
 
         # Peso
+        peso_estimado = False
         peso_bruto = _limpiar_numero(row.get("Volumen") or row.get("TOT_PESO"))
         if peso_bruto == 0:
-            # Estimación razonable por valor (ej. 1 kg por cada 5 USD)
+            peso_estimado = True
             peso_bruto = round(max(10.0, monto_fob / 5.0), 2)
 
         bultos = _limpiar_numero(row.get("TOT_BULTOS") or row.get("CANTIDAD"), defecto=1.0)
+
+        # Tratamiento y Detección de Valores Atípicos (Outliers de Comercio Exterior)
+        es_atipico = False
+
+        # Regla 1: Ratio valor/peso anómalo (USD por kg)
+        if peso_bruto > 0:
+            usd_por_kg = monto_fob / peso_bruto
+            # Bienes comerciales en aduanas rara vez superan 25,000 USD/kg
+            # y valores menores a 0.001 USD/kg con montos altos reflejan inconsistencia de digitación
+            if usd_por_kg > 25000.0 or (usd_por_kg < 0.001 and monto_fob > 1000.0):
+                es_atipico = True
+
+        # Regla 2: Exceso de capacidad física unitaria (Límite contenedor 40ft marítimo ~35,000 kg)
+        if bultos == 1 and peso_bruto > 35000.0:
+            es_atipico = True
+
+        # Regla 3: Monto extremo percentil 99.9 (> 25 millones USD en una sola declaración)
+        if monto_fob > 25000000.0 or monto_cif > 25000000.0:
+            es_atipico = True
+
+        if es_atipico:
+            registros_atipicos += 1
 
         registros_staging.append({
             "codigo_operacion": cod_op_raw,
@@ -310,19 +361,36 @@ def transformar_datos_a_staging(tipo_flujo, **context):
             "monto_seguro_usd": monto_seguro,
             "monto_cif_usd": monto_cif,
             "costo_logistico_usd": costo_logistico,
+            "montos_estimados": montos_estimados,
+            "peso_estimado": peso_estimado,
+            "aduana_estimada": aduana_estimada,
+            "es_atipico": es_atipico,
             "run_id": run_id
         })
 
+    if ti:
+        ti.xcom_push(key="registros_rechazados", value=registros_rechazados)
+        ti.xcom_push(key="registros_atipicos", value=registros_atipicos)
+    if registros_rechazados > 0:
+        logger.warning(f"Registros rechazados por fecha inválida o corrupta: {registros_rechazados}")
+    if registros_atipicos > 0:
+        logger.info(f"Valores atípicos detectados y marcados para auditoría: {registros_atipicos}")
+
     df_stg = pd.DataFrame(registros_staging)
+
+    # Circuit Breaker: si tras el filtrado quedan 0 filas válidas, se aborta antes de staging/DW
+    if len(df_stg) == 0:
+        raise ValueError(
+            "[CIRCUIT BREAKER] Violación de Quality Gate: 0 registros válidos procesados tras limpieza. "
+            "Carga abortada para proteger la integridad del Data Warehouse."
+        )
+
     # Deduplicación obligatoria por pauta
     filas_antes_dedup = len(df_stg)
     df_stg.drop_duplicates(subset=["codigo_operacion"], keep="last", inplace=True)
     logger.info(f"Deduplicación: {filas_antes_dedup} -> {len(df_stg)} registros únicos en staging.")
 
     # 3. LIMPIEZA TRANSITORIA Y CARGA IDEMPOTENTE EN STAGING
-    # Según directriz de arquitectura, la capa staging es un área de preparación transitoria.
-    # Se vacían los datos previos del flujo antes de insertar el nuevo lote limpio.
-    # El Data Warehouse (dw) conserva el histórico consolidado donde se contrasta lo nuevo vs lo existente.
     logger.info(f"Limpiando datos previos en staging.stg_operaciones_aduanas para flujo '{flujo}'...")
     cur.execute("DELETE FROM staging.stg_operaciones_aduanas WHERE tipo_flujo = %s;", (flujo,))
     conn.commit()
@@ -333,14 +401,16 @@ def transformar_datos_a_staging(tipo_flujo, **context):
             codigo_aduana, nombre_aduana, codigo_pais, nombre_pais,
             codigo_via_transporte, nombre_via_transporte, peso_bruto_kg,
             cantidad_bultos, monto_fob_usd, monto_flete_usd, monto_seguro_usd,
-            monto_cif_usd, costo_logistico_usd, run_id, fecha_procesamiento
+            monto_cif_usd, costo_logistico_usd, montos_estimados, peso_estimado,
+            aduana_estimada, es_atipico, run_id, fecha_procesamiento
         )
         VALUES (
             %(codigo_operacion)s, %(tipo_flujo)s, %(fecha_operacion)s, %(anio)s, %(mes)s,
             %(codigo_aduana)s, %(nombre_aduana)s, %(codigo_pais)s, %(nombre_pais)s,
             %(codigo_via_transporte)s, %(nombre_via_transporte)s, %(peso_bruto_kg)s,
             %(cantidad_bultos)s, %(monto_fob_usd)s, %(monto_flete_usd)s, %(monto_seguro_usd)s,
-            %(monto_cif_usd)s, %(costo_logistico_usd)s, %(run_id)s, CURRENT_TIMESTAMP
+            %(monto_cif_usd)s, %(costo_logistico_usd)s, %(montos_estimados)s, %(peso_estimado)s,
+            %(aduana_estimada)s, %(es_atipico)s, %(run_id)s, CURRENT_TIMESTAMP
         )
         ON CONFLICT (codigo_operacion) DO UPDATE SET
             peso_bruto_kg = EXCLUDED.peso_bruto_kg,
@@ -350,6 +420,10 @@ def transformar_datos_a_staging(tipo_flujo, **context):
             monto_seguro_usd = EXCLUDED.monto_seguro_usd,
             monto_cif_usd = EXCLUDED.monto_cif_usd,
             costo_logistico_usd = EXCLUDED.costo_logistico_usd,
+            montos_estimados = EXCLUDED.montos_estimados,
+            peso_estimado = EXCLUDED.peso_estimado,
+            aduana_estimada = EXCLUDED.aduana_estimada,
+            es_atipico = EXCLUDED.es_atipico,
             run_id = EXCLUDED.run_id,
             fecha_procesamiento = CURRENT_TIMESTAMP;
     """
