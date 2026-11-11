@@ -4,10 +4,13 @@ Disparado automáticamente al finalizar dag_01 o dag_02.
 Recalcula de forma idempotente las 5 tablas de KPIs en el esquema mart y registra auditoría.
 """
 import os
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+
+logger = logging.getLogger("airflow.task")
 
 try:
     from airflow.providers.postgres.hooks.postgres import PostgresHook
@@ -91,7 +94,7 @@ with DAG(
             from scripts.generar_dashboard_html import generar_reporte_desde_airflow
             generar_reporte_desde_airflow(**context)
         except Exception as e:
-            print(f"Advertencia al generar dashboard HTML: {e}")
+            logger.warning(f"Advertencia al generar dashboard HTML: {e}")
 
     tarea_generar_dashboard = PythonOperator(
         task_id="generar_dashboard_html_en_vivo",

@@ -17,8 +17,13 @@ Características clave:
 
 import os
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger("aduanas.dashboard")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 # Intentar importar dependencias de Airflow y PostgreSQL
 try:
@@ -114,38 +119,101 @@ def extraer_datos_desde_db(conn):
     datos["fecha_actualizacion"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
     try:
-        # KPI 01
+        # Totales Generales Reales desde dw.fact_comercio_exterior
         cur.execute("""
-            SELECT nombre_aduana, exportaciones_fob_usd, importaciones_cif_usd,
-                   saldo_comercial_usd, tasa_cobertura_pct, cumple_meta
+            SELECT 
+                COALESCE(SUM(CASE WHEN tipo_flujo = 'EXPORTACION' THEN monto_fob_usd ELSE 0 END), 0) AS total_fob,
+                COALESCE(SUM(CASE WHEN tipo_flujo = 'IMPORTACION' THEN monto_cif_usd ELSE 0 END), 0) AS total_cif,
+                COALESCE(SUM(peso_toneladas), 0) AS total_toneladas
+            FROM dw.fact_comercio_exterior;
+        """)
+        row_tot = cur.fetchone()
+        tot_fob = float(row_tot[0] or 0)
+        tot_cif = float(row_tot[1] or 0)
+        total_ton = float(row_tot[2] or 0)
+        saldo_neto = tot_fob - tot_cif
+        cobertura_global = round((tot_fob / tot_cif * 100.0), 2) if tot_cif > 0 else 100.0
+
+        datos["totales"] = {
+            "total_fob": tot_fob,
+            "total_cif": tot_cif,
+            "saldo_neto": saldo_neto,
+            "cobertura_global": cobertura_global,
+            "total_toneladas": total_ton
+        }
+
+        # KPI 01: Balanza Comercial agrupada por Aduana Real
+        cur.execute("""
+            SELECT 
+                nombre_aduana,
+                SUM(exportaciones_fob_usd) AS fob,
+                SUM(importaciones_cif_usd) AS cif,
+                SUM(saldo_comercial_usd) AS saldo,
+                CASE 
+                    WHEN SUM(importaciones_cif_usd) > 0 THEN 
+                        ROUND((SUM(exportaciones_fob_usd) / SUM(importaciones_cif_usd)) * 100.0, 2)
+                    ELSE 0.00
+                END AS cobertura,
+                CASE 
+                    WHEN SUM(importaciones_cif_usd) = 0 THEN TRUE
+                    WHEN SUM(exportaciones_fob_usd) >= SUM(importaciones_cif_usd) THEN TRUE
+                    ELSE FALSE 
+                END AS cumple
             FROM mart.kpi_01_balanza_comercial_aduana
-            ORDER BY (exportaciones_fob_usd + importaciones_cif_usd) DESC
-            LIMIT 10;
+            WHERE codigo_aduana > 0
+            GROUP BY codigo_aduana, nombre_aduana
+            ORDER BY SUM(exportaciones_fob_usd) DESC;
         """)
         rows_kpi1 = cur.fetchall()
         kpi_01 = []
-        tot_fob = 0.0
-        tot_cif = 0.0
         for r in rows_kpi1:
             fob = float(r[1] or 0)
             cif = float(r[2] or 0)
             saldo = float(r[3] or 0)
             cobertura = float(r[4] or 0)
             cumple = bool(r[5])
-            tot_fob += fob
-            tot_cif += cif
             tipo = "SUPERÁVIT" if saldo >= 0 else "DÉFICIT"
             kpi_01.append({
                 "nombre_aduana": r[0], "fob": fob, "cif": cif,
                 "saldo": saldo, "cobertura": cobertura, "cumple": cumple, "tipo": tipo
             })
+
+        # Si existen importaciones centralizadas no desagregadas por aduana en la API pública, agregar fila resumen explicativa
+        cur.execute("""
+            SELECT 
+                SUM(exportaciones_fob_usd) AS fob,
+                SUM(importaciones_cif_usd) AS cif,
+                SUM(saldo_comercial_usd) AS saldo
+            FROM mart.kpi_01_balanza_comercial_aduana
+            WHERE codigo_aduana = 0;
+        """)
+        row_sin_adu = cur.fetchone()
+        if row_sin_adu and (row_sin_adu[0] or row_sin_adu[1]):
+            fob_sin = float(row_sin_adu[0] or 0)
+            cif_sin = float(row_sin_adu[1] or 0)
+            saldo_sin = float(row_sin_adu[2] or 0)
+            cob_sin = round((fob_sin / cif_sin * 100.0), 2) if cif_sin > 0 else 0.0
+            kpi_01.append({
+                "nombre_aduana": "OPERACIONES CENTRALIZADAS (Importación sin aduana en API)",
+                "fob": fob_sin, "cif": cif_sin, "saldo": saldo_sin,
+                "cobertura": cob_sin, "cumple": False, "tipo": "CENTRALIZADO"
+            })
         datos["kpi_01"] = kpi_01
 
-        # KPI 02
+        # KPI 02: Incidencia Costo Logístico
         cur.execute("""
-            SELECT nombre_via_transporte, nombre_aduana, monto_flete_usd,
-                   monto_seguro_usd, costo_logistico_usd, monto_cif_usd,
-                   pct_costo_logistico, cumple_meta
+            SELECT 
+                nombre_via_transporte,
+                CASE 
+                    WHEN codigo_aduana = 0 THEN 'Nivel Nacional (Consolidado)' 
+                    ELSE nombre_aduana 
+                END AS aduana,
+                monto_flete_usd,
+                monto_seguro_usd,
+                costo_logistico_usd,
+                monto_cif_usd,
+                pct_costo_logistico,
+                cumple_meta
             FROM mart.kpi_02_incidencia_costo_logistico
             ORDER BY monto_cif_usd DESC
             LIMIT 10;
@@ -170,10 +238,8 @@ def extraer_datos_desde_db(conn):
         """)
         rows_kpi3 = cur.fetchall()
         kpi_03 = []
-        total_ton = 0.0
         for r in rows_kpi3:
             ton = float(r[1] or 0)
-            total_ton += ton
             kpi_03.append({
                 "aduana": r[0], "toneladas": ton, "pct": float(r[3] or 0),
                 "alerta": bool(r[4])
@@ -218,17 +284,6 @@ def extraer_datos_desde_db(conn):
             })
         datos["kpi_05"] = kpi_05
 
-        # Totales Generales
-        saldo_neto = tot_fob - tot_cif
-        cobertura_global = round((tot_fob / tot_cif * 100.0), 2) if tot_cif > 0 else 100.0
-        datos["totales"] = {
-            "total_fob": tot_fob,
-            "total_cif": tot_cif,
-            "saldo_neto": saldo_neto,
-            "cobertura_global": cobertura_global,
-            "total_toneladas": total_ton
-        }
-
         return datos
 
     finally:
@@ -257,15 +312,23 @@ def construir_html(datos):
     for r in datos["kpi_01"]:
         color_saldo = "#34d399" if r["saldo"] >= 0 else "#f87171"
         signo = "+" if r["saldo"] >= 0 else ""
-        badge_cls = "badge-success" if r["cumple"] else "badge-danger"
+        if r["tipo"] == "CENTRALIZADO":
+            badge_cls = "badge-info"
+            cob_txt = f"{r['cobertura']:,.2f}%"
+            meta_txt = "Registro Centralizado"
+        else:
+            badge_cls = "badge-success" if r["cumple"] else "badge-danger"
+            cob_txt = f"{r['cobertura']:,.2f}%" if r["cif"] > 0 else "N/D (Exportación Pura)"
+            meta_txt = "Cobertura ≥ 100.0%" if r["cif"] > 0 else "Nodo Exportador"
+
         filas_kpi1 += f"""
             <tr>
                 <td><strong>{r['nombre_aduana']}</strong></td>
                 <td>{formatear_usd(r['fob'])}</td>
                 <td>{formatear_usd(r['cif'])}</td>
                 <td><strong style="color: {color_saldo};">{signo}{formatear_usd(r['saldo'])}</strong></td>
-                <td><strong>{r['cobertura']:,.2f}%</strong></td>
-                <td>Cobertura ≥ 100.0%</td>
+                <td><strong>{cob_txt}</strong></td>
+                <td>{meta_txt}</td>
                 <td><span class="badge {badge_cls}">{r['tipo']}</span></td>
             </tr>"""
 
@@ -855,9 +918,9 @@ def generar_dashboard(output_rutas=None, conn=None):
     if conn:
         try:
             datos = extraer_datos_desde_db(conn)
-            print(f"-> Datos extraídos exitosamente desde PostgreSQL ({datos['origen']})")
+            logger.info(f"Datos extraídos exitosamente desde PostgreSQL ({datos['origen']})")
         except Exception as e:
-            print(f"-> Advertencia: Error al extraer datos de BD: {e}. Usando fallback auditado.")
+            logger.warning(f"Error al extraer datos de BD: {e}. Usando fallback auditado.")
 
     if not datos:
         conexion = obtener_conexion_db()
@@ -865,12 +928,12 @@ def generar_dashboard(output_rutas=None, conn=None):
             try:
                 datos = extraer_datos_desde_db(conexion)
                 conexion.close()
-                print(f"-> Conexión establecida a PostgreSQL. {len(datos['kpi_01'])} aduanas analizadas.")
+                logger.info(f"Conexión establecida a PostgreSQL. {len(datos['kpi_01'])} aduanas analizadas.")
             except Exception as e:
-                print(f"-> No se pudo consultar la BD: {e}. Usando datos auditados de contingencia.")
+                logger.warning(f"No se pudo consultar la BD: {e}. Usando datos auditados de contingencia.")
                 datos = obtener_datos_fallback()
         else:
-            print("-> Modo Offline: Generando dashboard con datos base pre-auditados.")
+            logger.info("Modo Offline: Generando dashboard con datos base pre-auditados.")
             datos = obtener_datos_fallback()
 
     html_content = construir_html(datos)
@@ -891,7 +954,7 @@ def generar_dashboard(output_rutas=None, conn=None):
             with open(p, "w", encoding="utf-8") as f:
                 f.write(html_content)
             rutas_generadas.append(str(p))
-            print(f"-> Dashboard HTML actualizado en: {p}")
+            logger.info(f"Dashboard HTML actualizado en: {p}")
         except Exception as e:
             # Ignorar rutas que no existen en el entorno actual (ej. /opt/airflow fuera de docker)
             pass
@@ -901,7 +964,7 @@ def generar_dashboard(output_rutas=None, conn=None):
 
 def generar_reporte_desde_airflow(**context):
     """Función invocada directamente por Airflow PythonOperator en DAG 03."""
-    print("-> Iniciando generación de Dashboard HTML desde Airflow...")
+    logger.info("Iniciando generación de Dashboard HTML desde Airflow...")
     conn = None
     if PostgresHook:
         hook = PostgresHook(postgres_conn_id="postgres_dw")
@@ -914,7 +977,7 @@ def generar_reporte_desde_airflow(**context):
     rutas_creadas = generar_dashboard(output_rutas=rutas, conn=conn)
     if conn:
         conn.close()
-    print(f"-> Dashboard generado exitosamente en Airflow: {rutas_creadas}")
+    logger.info(f"Dashboard generado exitosamente en Airflow: {rutas_creadas}")
 
 
 if __name__ == "__main__":
